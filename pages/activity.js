@@ -1,12 +1,5 @@
-export async function getServerSideProps() {
-  return {
-    redirect: {
-      destination: "/#activity",
-      permanent: false
-    }
-  };
-}
+import WalletRoute from "../components/wallet-route";
 
-export default function ActivityRedirect() {
-  return null;
+export default function ActivityRoute() {
+  return <WalletRoute initialView="activity" />;
 }

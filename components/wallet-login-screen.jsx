@@ -7,11 +7,16 @@ import {
   arcActiveChain,
   hasWalletConnectProjectId
 } from "../lib/arc-chain";
+import { FeatureIcon } from "./wallet-sidebar";
+import SiteFooter from "./site-footer";
 
-export default function WalletLoginScreen({
-  providerError = "",
-  providerUnavailable = false
-}) {
+const FEATURES = [
+  { icon: "send", title: "Send", copy: "Review the recipient and fee before signing." },
+  { icon: "swap", title: "Swap", copy: "Use live quotes with clear slippage limits." },
+  { icon: "bridge", title: "Bridge", copy: "Move USDC across supported test networks." }
+];
+
+export default function WalletLoginScreen({ providerError = "", providerUnavailable = false }) {
   const [connectError, setConnectError] = useState("");
   const [fallbackReady, setFallbackReady] = useState(false);
 
@@ -23,12 +28,12 @@ export default function WalletLoginScreen({
   const mainnetLocked = ARC_MAINNET_REQUESTED && !ARC_MAINNET_READY;
 
   return (
-    <main className="login-page-shell wallet-entry-page">
-      <header className="wallet-entry-topbar">
-        <div className="wallet-entry-brand">
-          <span className="wallet-entry-logo">
+    <main className="login-page">
+      <header className="login-topbar">
+        <div className="login-brand">
+          <span>
             <Image
-              src="/lumexa-ai-wallet-mark-v2.png"
+              src="/lumexa-wallet-mark.png"
               alt=""
               width={42}
               height={42}
@@ -36,40 +41,62 @@ export default function WalletLoginScreen({
               sizes="42px"
             />
           </span>
-          <strong>Lumexa AI Wallet</strong>
+          <div>
+            <strong>Lumexa</strong>
+            <small>AI Wallet</small>
+          </div>
         </div>
-        <span className="wallet-entry-network"><i /> {arcActiveChain.name}</span>
+        <span className="environment-pill">
+          <i aria-hidden="true" /> {arcActiveChain.name}
+        </span>
       </header>
 
-      <section className="wallet-entry-main">
-        <div className="wallet-entry-copy">
-          <h1>Your Lumexa wallet.</h1>
-          <p>Manage USDC on {arcActiveChain.name} from one place.</p>
+      <section className="login-hero">
+        <div className="login-copy">
+          <span className="eyebrow">Self-custodial USDC wallet</span>
+          <h1>Move USDC with confidence.</h1>
+          <p>
+            Send, swap, and bridge across Arc and supported networks—with every action reviewed
+            before your wallet signs.
+          </p>
+          <div className="login-feature-grid">
+            {FEATURES.map((feature) => (
+              <div key={feature.title}>
+                <span>
+                  <FeatureIcon name={feature.icon} />
+                </span>
+                <strong>{feature.title}</strong>
+                <small>{feature.copy}</small>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <aside className="wallet-entry-card">
-          <div className="wallet-entry-card-logo" aria-hidden="true">
+        <section className="connect-card" aria-labelledby="connect-wallet-heading">
+          <div className="connect-card-mark" aria-hidden="true">
             <Image
-              src="/lumexa-ai-wallet-mark-v2.png"
+              src="/lumexa-wallet-mark.png"
               alt=""
-              width={76}
-              height={76}
+              width={68}
+              height={68}
               priority
-              sizes="76px"
+              sizes="68px"
             />
           </div>
-
-          <h2>{mainnetLocked ? "Mainnet setup required" : "Connect wallet"}</h2>
+          <span className="eyebrow">Secure access</span>
+          <h2 id="connect-wallet-heading">
+            {mainnetLocked ? "Mainnet setup required" : "Connect your wallet"}
+          </h2>
           <p>
             {mainnetLocked
-              ? "Mainnet is locked until the official production endpoint configuration is complete and explicitly enabled."
-              : "Connect your wallet to view balances and manage your assets."}
+              ? "Mainnet remains locked until the verified production configuration is enabled."
+              : "Lumexa reads public wallet data. Your wallet keeps your keys and approves every transaction."}
           </p>
 
           {providerUnavailable || mainnetLocked ? (
             <button
               type="button"
-              className="button button-primary wallet-entry-connect"
+              className="button button-primary connect-button"
               onClick={() => window.location.reload()}
             >
               Reload wallet
@@ -77,24 +104,25 @@ export default function WalletLoginScreen({
           ) : (
             <ConnectButton.Custom>
               {({ mounted, openConnectModal }) => {
-                const canOpenWallet = typeof openConnectModal === "function" && (mounted || fallbackReady);
-                const handleConnect = () => {
-                  setConnectError("");
-                  if (!canOpenWallet) {
-                    setConnectError(providerError || "Wallet connection is unavailable. Refresh and try again.");
-                    return;
-                  }
-                  openConnectModal();
-                };
-
+                const canOpenWallet =
+                  typeof openConnectModal === "function" && (mounted || fallbackReady);
                 return (
                   <button
                     type="button"
-                    className="button button-primary wallet-entry-connect"
-                    onClick={handleConnect}
+                    className="button button-primary connect-button"
+                    onClick={() => {
+                      setConnectError("");
+                      if (canOpenWallet) openConnectModal();
+                      else
+                        setConnectError(
+                          providerError ||
+                            "Wallet connection is unavailable. Refresh and try again."
+                        );
+                    }}
                     disabled={!canOpenWallet}
                   >
-                    {canOpenWallet ? "Connect wallet" : "Preparing…"}
+                    {canOpenWallet ? "Connect wallet" : "Preparing wallet…"}
+                    <span aria-hidden="true">→</span>
                   </button>
                 );
               }}
@@ -102,24 +130,32 @@ export default function WalletLoginScreen({
           )}
 
           {connectError || (providerUnavailable && providerError) ? (
-            <p className="wallet-entry-error" role="alert">{connectError || providerError}</p>
+            <p className="form-error" role="alert">
+              {connectError || providerError}
+            </p>
           ) : null}
 
-          <div className="wallet-entry-meta">
-            <span>Self-custodial</span>
+          <div className="connect-meta">
+            <span>Non-custodial</span>
             <span>USDC gas</span>
-            <span>{arcActiveChain.testnet ? "Testnet" : "Mainnet"}</span>
+            <span>Testnet</span>
           </div>
-
-          <small className="wallet-entry-note">
-            Never share your seed phrase or private key.
-          </small>
-
-          <small className="wallet-entry-wallets">
+          <div className="testnet-notice">
+            <strong>Testnet environment</strong>
+            <span>Assets shown here have no real-world monetary value.</span>
+          </div>
+          <small className="wallet-support">
             Browser wallets · Safe{hasWalletConnectProjectId ? " · WalletConnect" : ""}
           </small>
-        </aside>
+        </section>
       </section>
+
+      <div className="login-security-line">
+        <span>✓ Never enter a seed phrase</span>
+        <span>✓ Review every wallet prompt</span>
+        <span>✓ Verify network and address</span>
+      </div>
+      <SiteFooter />
     </main>
   );
 }

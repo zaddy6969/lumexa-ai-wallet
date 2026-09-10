@@ -1,11 +1,15 @@
 import { createPublicClient, erc20Abi, formatUnits, getAddress, http, isAddress } from "viem";
+import { enforceRateLimit } from "../../lib/api-security";
 import {
   ARC_PORTFOLIO_TOKENS,
   ARC_USDC_ERC20_ADDRESS,
   MULTICHAIN_WALLET_CHAINS,
   arcTestnet
 } from "../../lib/arc-chain";
+import { isZeroEvmAddress } from "../../lib/wallet-validation.mjs";
 
+const PRICE_CACHE = Symbol.for("lumexa.marketPriceCache");
+const PRICE_CACHE_MS = 60_000;
 const USDC_BY_CHAIN = {
   [arcTestnet.id]: ARC_USDC_ERC20_ADDRESS,
   11155111: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
@@ -28,18 +32,19 @@ function formatAmount(value, maximumFractionDigits = 6) {
 }
 
 function formatUsd(value) {
-  return `$${new Intl.NumberFormat("en-US", {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
-  }).format(safeNumber(value))}`;
+  }).format(safeNumber(value));
 }
 
 async function readSpotPrice(pair) {
   try {
     const response = await fetch(`https://api.coinbase.com/v2/prices/${pair}/spot`, {
-      cache: "no-store",
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(3500)
+      signal: AbortSignal.timeout(2500)
     });
     if (!response.ok) return 0;
     const payload = await response.json();
@@ -50,19 +55,25 @@ async function readSpotPrice(pair) {
 }
 
 async function readMarketPrices() {
-  const [ethUsd, btcUsd] = await Promise.all([
-    readSpotPrice("ETH-USD"),
-    readSpotPrice("BTC-USD")
-  ]);
-  return { ethUsd, btcUsd };
+  const needsPrices = MULTICHAIN_WALLET_CHAINS.some((chain) => !chain.testnet);
+  if (!needsPrices) return { ethUsd: 0, btcUsd: 0, source: "disabled-on-testnet" };
+
+  const cached = globalThis[PRICE_CACHE];
+  if (cached && Date.now() - cached.checkedAt < PRICE_CACHE_MS) return cached.value;
+
+  const [ethUsd, btcUsd] = await Promise.all([readSpotPrice("ETH-USD"), readSpotPrice("BTC-USD")]);
+  const value = { ethUsd, btcUsd, source: "coinbase-reference" };
+  globalThis[PRICE_CACHE] = { checkedAt: Date.now(), value };
+  return value;
 }
 
 function tokenConfigForChain(chain, prices) {
   if (chain.id === arcTestnet.id) {
     return ARC_PORTFOLIO_TOKENS.filter((token) => token?.address).map((token) => ({
       ...token,
-      priceUsd:
-        token.symbol === "cirBTC" && prices.btcUsd > 0
+      referencePriceUsd: chain.testnet
+        ? null
+        : token.symbol === "cirBTC" && prices.btcUsd > 0
           ? prices.btcUsd
           : safeNumber(token.priceUsd)
     }));
@@ -76,40 +87,45 @@ function tokenConfigForChain(chain, prices) {
           name: "USD Coin",
           address: usdcAddress,
           decimals: 6,
-          priceUsd: 1
+          referencePriceUsd: chain.testnet ? null : 1
         }
       ]
     : [];
 }
 
+function unavailableNetwork(chain) {
+  return {
+    chainId: chain.id,
+    name: chain.name,
+    testnet: Boolean(chain.testnet),
+    status: "unavailable",
+    explorerUrl: chain?.blockExplorers?.default?.url || "",
+    assets: [],
+    assetCount: 0,
+    assetSummary: "Balance read unavailable",
+    totalReferenceUsd: null,
+    totalReferenceUsdDisplay: "Unavailable",
+    usdcBalance: 0,
+    usdcDisplay: "0.00 USDC",
+    nativeBalance: 0,
+    nativeDisplay: `0.00 ${chain.nativeCurrency.symbol}`,
+    nativeSymbol: chain.nativeCurrency.symbol
+  };
+}
+
 async function readNetworkBalance(chain, address, prices) {
   const rpcUrl = chain?.rpcUrls?.default?.http?.[0];
-  if (!rpcUrl) {
-    return {
-      chainId: chain.id,
-      name: chain.name,
-      status: "unavailable",
-      assets: [],
-      totalUsd: 0,
-      totalUsdDisplay: "$0.00",
-      usdcBalance: 0,
-      usdcDisplay: "0.00 USDC",
-      nativeBalance: 0,
-      nativeDisplay: `0.00 ${chain.nativeCurrency.symbol}`,
-      nativeSymbol: chain.nativeCurrency.symbol
-    };
-  }
+  if (!rpcUrl) return unavailableNetwork(chain);
 
   const client = createPublicClient({
     chain,
-    transport: http(rpcUrl, { timeout: 9000, retryCount: 1 })
+    transport: http(rpcUrl, { timeout: 6000, retryCount: 0 })
   });
-
   const configuredTokens = tokenConfigForChain(chain, prices);
   const [nativeResult, tokenResults] = await Promise.all([
     client.getBalance({ address }).then(
       (value) => ({ status: "fulfilled", value }),
-      (reason) => ({ status: "rejected", reason })
+      () => ({ status: "rejected" })
     ),
     Promise.all(
       configuredTokens.map((token) =>
@@ -122,107 +138,105 @@ async function readNetworkBalance(chain, address, prices) {
           })
           .then(
             (value) => ({ status: "fulfilled", value }),
-            (reason) => ({ status: "rejected", reason })
+            () => ({ status: "rejected" })
           )
       )
     )
   ]);
 
   const nativeBalance =
-    nativeResult.status === "fulfilled" && typeof nativeResult.value === "bigint"
+    nativeResult.status === "fulfilled"
       ? safeNumber(formatUnits(nativeResult.value, chain.nativeCurrency.decimals))
       : 0;
-
   const assets = configuredTokens.map((token, index) => {
     const result = tokenResults[index];
     const balanceValue =
-      result?.status === "fulfilled" && typeof result.value === "bigint"
-        ? safeNumber(formatUnits(result.value, token.decimals))
-        : 0;
-    const priceUsd = safeNumber(token.priceUsd);
+      result?.status === "fulfilled" ? safeNumber(formatUnits(result.value, token.decimals)) : 0;
+    const referencePriceUsd = token.referencePriceUsd;
+    const referenceValueUsd = referencePriceUsd ? balanceValue * referencePriceUsd : null;
     return {
       symbol: token.symbol,
       name: token.name,
       balanceValue,
-      balanceDisplay: `${formatAmount(balanceValue, token.symbol === "USDC" || token.symbol === "EURC" ? 4 : 8)} ${token.symbol}`,
-      priceUsd,
-      valueUsd: balanceValue * priceUsd,
-      valueUsdDisplay: formatUsd(balanceValue * priceUsd),
+      balanceDisplay: `${formatAmount(balanceValue, ["USDC", "EURC"].includes(token.symbol) ? 4 : 8)} ${token.symbol}`,
+      referencePriceUsd,
+      referenceValueUsd,
+      referenceValueUsdDisplay: chain.testnet
+        ? "Testnet token"
+        : referenceValueUsd === null
+          ? "Price unavailable"
+          : formatUsd(referenceValueUsd),
       status: result?.status === "fulfilled" ? "ready" : "unavailable",
       native: false
     };
   });
 
   const usdcAsset = assets.find((asset) => asset.symbol === "USDC");
-
-  // Arc uses USDC as its gas asset. If the ERC-20 balance read fails entirely, use the
-  // native USDC balance as a fallback, but never count native + ERC-20 USDC twice.
   if (
     chain.id === arcTestnet.id &&
-    usdcAsset &&
-    usdcAsset.status !== "ready" &&
+    usdcAsset?.status !== "ready" &&
     nativeResult.status === "fulfilled"
   ) {
     usdcAsset.balanceValue = nativeBalance;
     usdcAsset.balanceDisplay = `${formatAmount(nativeBalance, 4)} USDC`;
-    usdcAsset.valueUsd = nativeBalance;
-    usdcAsset.valueUsdDisplay = formatUsd(nativeBalance);
     usdcAsset.status = "ready";
   }
 
   if (chain.id !== arcTestnet.id && nativeResult.status === "fulfilled") {
-    // Testnet ETH is faucet gas and has no real USD value. Keep the balance visible,
-    // but only value native ETH in USD on real mainnet chains.
-    const nativePriceUsd =
-      !chain.testnet && chain.nativeCurrency.symbol === "ETH" ? prices.ethUsd : 0;
+    const referencePriceUsd =
+      !chain.testnet && chain.nativeCurrency.symbol === "ETH" ? prices.ethUsd || null : null;
+    const referenceValueUsd = referencePriceUsd ? nativeBalance * referencePriceUsd : null;
     assets.push({
       symbol: chain.nativeCurrency.symbol,
       name: chain.nativeCurrency.name,
       balanceValue: nativeBalance,
       balanceDisplay: `${formatAmount(nativeBalance, 6)} ${chain.nativeCurrency.symbol}`,
-      priceUsd: nativePriceUsd,
-      valueUsd: nativeBalance * nativePriceUsd,
-      valueUsdDisplay:
-        chain.testnet
-          ? "Testnet gas"
-          : nativePriceUsd > 0
-            ? formatUsd(nativeBalance * nativePriceUsd)
-            : "Price unavailable",
+      referencePriceUsd,
+      referenceValueUsd,
+      referenceValueUsdDisplay: chain.testnet
+        ? "Testnet gas"
+        : referenceValueUsd === null
+          ? "Price unavailable"
+          : formatUsd(referenceValueUsd),
       status: "ready",
       native: true
     });
   }
 
-  const successfulTokenRead = assets.some((asset) => asset.status === "ready");
-  const hasAnySuccessfulRead = nativeResult.status === "fulfilled" || successfulTokenRead;
-  const totalUsd = assets.reduce((sum, asset) => sum + safeNumber(asset.valueUsd), 0);
-  const positiveAssets = assets.filter((asset) => asset.status === "ready" && asset.balanceValue > 0);
-  const assetSummary = positiveAssets.length
-    ? positiveAssets.map((asset) => asset.balanceDisplay).join(" · ")
-    : "No funded tracked assets";
+  const hasSuccessfulRead =
+    nativeResult.status === "fulfilled" || assets.some((asset) => asset.status === "ready");
+  const positiveAssets = assets.filter(
+    (asset) => asset.status === "ready" && asset.balanceValue > 0
+  );
+  const referenceValues = assets
+    .map((asset) => asset.referenceValueUsd)
+    .filter((value) => typeof value === "number");
+  const totalReferenceUsd = referenceValues.length
+    ? referenceValues.reduce((sum, value) => sum + value, 0)
+    : null;
 
   return {
     chainId: chain.id,
     name: chain.name,
-    status: hasAnySuccessfulRead ? "ready" : "unavailable",
+    testnet: Boolean(chain.testnet),
+    status: hasSuccessfulRead ? "ready" : "unavailable",
     explorerUrl: chain?.blockExplorers?.default?.url || "",
     assets,
     assetCount: positiveAssets.length,
-    assetSummary,
-    totalUsd,
-    totalUsdDisplay: formatUsd(totalUsd),
+    assetSummary: positiveAssets.length
+      ? positiveAssets.map((asset) => asset.balanceDisplay).join(" · ")
+      : "No funded tracked assets",
+    totalReferenceUsd,
+    totalReferenceUsdDisplay: chain.testnet
+      ? "Testnet assets"
+      : totalReferenceUsd === null
+        ? "Price unavailable"
+        : formatUsd(totalReferenceUsd),
     usdcBalance: safeNumber(usdcAsset?.balanceValue),
     usdcDisplay: usdcAsset?.balanceDisplay || "0.00 USDC",
-    usdcValueUsd: safeNumber(usdcAsset?.valueUsd),
     nativeBalance,
     nativeDisplay: `${formatAmount(nativeBalance, 6)} ${chain.nativeCurrency.symbol}`,
-    nativeSymbol: chain.nativeCurrency.symbol,
-    pricingPartial:
-      !chain.testnet &&
-      chain.id !== arcTestnet.id &&
-      nativeBalance > 0 &&
-      chain.nativeCurrency.symbol === "ETH" &&
-      prices.ethUsd <= 0
+    nativeSymbol: chain.nativeCurrency.symbol
   };
 }
 
@@ -231,10 +245,11 @@ export default async function handler(req, res) {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed." });
   }
+  if (!enforceRateLimit(req, res, { scope: "balances", limit: 45 })) return;
 
   const rawAddress = String(req.query?.address || "").trim();
-  if (!isAddress(rawAddress)) {
-    return res.status(400).json({ error: "A valid wallet address is required." });
+  if (!isAddress(rawAddress) || isZeroEvmAddress(rawAddress)) {
+    return res.status(400).json({ error: "A non-zero wallet address is required." });
   }
 
   const address = getAddress(rawAddress);
@@ -242,51 +257,47 @@ export default async function handler(req, res) {
   const settled = await Promise.allSettled(
     MULTICHAIN_WALLET_CHAINS.map((chain) => readNetworkBalance(chain, address, prices))
   );
-
-  const networks = settled.map((result, index) => {
-    if (result.status === "fulfilled") return result.value;
-    const chain = MULTICHAIN_WALLET_CHAINS[index];
-    return {
-      chainId: chain.id,
-      name: chain.name,
-      status: "unavailable",
-      explorerUrl: chain?.blockExplorers?.default?.url || "",
-      assets: [],
-      assetCount: 0,
-      assetSummary: "Balance read unavailable",
-      totalUsd: 0,
-      totalUsdDisplay: "$0.00",
-      usdcBalance: 0,
-      usdcDisplay: "0.00 USDC",
-      usdcValueUsd: 0,
-      nativeBalance: 0,
-      nativeDisplay: `0.00 ${chain.nativeCurrency.symbol}`,
-      nativeSymbol: chain.nativeCurrency.symbol,
-      pricingPartial: false
-    };
-  });
-
+  const networks = settled.map((result, index) =>
+    result.status === "fulfilled"
+      ? result.value
+      : unavailableNetwork(MULTICHAIN_WALLET_CHAINS[index])
+  );
   const readyNetworks = networks.filter((network) => network.status === "ready");
-  const totalUsdc = readyNetworks.reduce((sum, network) => sum + safeNumber(network.usdcBalance), 0);
-  const totalUsd = readyNetworks.reduce((sum, network) => sum + safeNumber(network.totalUsd), 0);
-  const totalAssetCount = readyNetworks.reduce((sum, network) => sum + safeNumber(network.assetCount), 0);
-  const pricingPartial = networks.some((network) => network.pricingPartial);
+  const totalUsdc = readyNetworks.reduce(
+    (sum, network) => sum + safeNumber(network.usdcBalance),
+    0
+  );
+  const totalAssetCount = readyNetworks.reduce(
+    (sum, network) => sum + safeNumber(network.assetCount),
+    0
+  );
+  const allTestnet = networks.every((network) => network.testnet);
+  const referenceValues = readyNetworks
+    .map((network) => network.totalReferenceUsd)
+    .filter((value) => typeof value === "number");
+  const totalReferenceUsd =
+    allTestnet || !referenceValues.length
+      ? null
+      : referenceValues.reduce((sum, value) => sum + value, 0);
 
-  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.setHeader("Cache-Control", "public, s-maxage=30, stale-while-revalidate=120");
   return res.status(200).json({
     ok: true,
     address,
+    environment: allTestnet ? "testnet" : "mainnet",
+    testnetAssetsHaveNoMonetaryValue: allTestnet,
     totalUsdc,
-    totalUsd,
-    totalUsdDisplay: formatUsd(totalUsd),
+    totalUsdcDisplay: `${formatAmount(totalUsdc, 4)} USDC`,
+    totalReferenceUsd,
+    totalReferenceUsdDisplay: allTestnet
+      ? "Not valued on testnet"
+      : totalReferenceUsd === null
+        ? "Price unavailable"
+        : formatUsd(totalReferenceUsd),
     totalAssetCount,
     networks,
-    prices: {
-      ethUsd: prices.ethUsd,
-      btcUsd: prices.btcUsd
-    },
+    priceSource: prices.source,
     partial: readyNetworks.length !== networks.length,
-    pricingPartial,
     checkedAt: new Date().toISOString()
   });
 }

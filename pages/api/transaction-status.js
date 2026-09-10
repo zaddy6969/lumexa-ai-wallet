@@ -1,5 +1,11 @@
 import { createPublicClient, http } from "viem";
 import { MULTICHAIN_WALLET_CHAINS, arcTestnet } from "../../lib/arc-chain";
+import {
+  enforceRateLimit,
+  hasOversizedJsonBody,
+  rejectCrossSiteRequest,
+  setNoStore
+} from "../../lib/api-security";
 
 const HASH_PATTERN = /^0x[a-fA-F0-9]{64}$/;
 
@@ -41,9 +47,15 @@ async function getStatus(item) {
 }
 
 export default async function handler(req, res) {
+  setNoStore(res);
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed." });
+  }
+  if (!enforceRateLimit(req, res, { scope: "transaction-status", limit: 30 })) return;
+  if (rejectCrossSiteRequest(req, res)) return;
+  if (hasOversizedJsonBody(req, 16_000)) {
+    return res.status(413).json({ error: "Request is too large." });
   }
 
   const transactions = normalizeRequests(req.body);

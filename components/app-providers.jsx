@@ -1,13 +1,5 @@
-import {
-  connectorsForWallets,
-  darkTheme,
-  RainbowKitProvider
-} from "@rainbow-me/rainbowkit";
-import {
-  injectedWallet,
-  safeWallet,
-  walletConnectWallet
-} from "@rainbow-me/rainbowkit/wallets";
+import { connectorsForWallets, lightTheme, RainbowKitProvider } from "@rainbow-me/rainbowkit";
+import { injectedWallet, safeWallet, walletConnectWallet } from "@rainbow-me/rainbowkit/wallets";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Component, useMemo, useState } from "react";
 import { createConfig, http, WagmiProvider } from "wagmi";
@@ -26,8 +18,7 @@ function ProviderFallback({ message }) {
     <WalletLoginScreen
       providerUnavailable
       providerError={
-        message ||
-        "Wallet provider initialization failed, but the app is still available."
+        message || "Wallet provider initialization failed, but the app is still available."
       }
     />
   );
@@ -97,9 +88,7 @@ function createWalletConfig() {
     ],
     {
       appName: "Lumexa AI Wallet",
-      ...(hasWalletConnectProjectId
-        ? { projectId: walletConnectProjectId }
-        : {})
+      ...(hasWalletConnectProjectId ? { projectId: walletConnectProjectId } : {})
     }
   );
 
@@ -124,9 +113,9 @@ function createWalletConfig() {
   });
 }
 
-const rainbowTheme = darkTheme({
-  accentColor: "#61d8ff",
-  accentColorForeground: "#06131d",
+const rainbowTheme = lightTheme({
+  accentColor: "#5568e8",
+  accentColorForeground: "#ffffff",
   borderRadius: "large",
   fontStack: "system",
   overlayBlur: "small"
@@ -138,9 +127,9 @@ export default function AppProviders({ children }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            refetchOnWindowFocus: false,
+            refetchOnWindowFocus: true,
             retry: 1,
-            staleTime: 10_000
+            staleTime: 30_000
           }
         }
       })

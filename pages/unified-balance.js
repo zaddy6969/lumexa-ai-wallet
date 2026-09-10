@@ -1,8 +1,8 @@
 export async function getServerSideProps() {
   return {
     redirect: {
-      destination: "/#unified",
-      permanent: false
+      destination: "/",
+      permanent: true
     }
   };
 }

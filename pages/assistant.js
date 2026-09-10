@@ -1,12 +1,5 @@
-export async function getServerSideProps() {
-  return {
-    redirect: {
-      destination: "/",
-      permanent: false
-    }
-  };
-}
+import WalletRoute from "../components/wallet-route";
 
-export default function AssistantRedirect() {
-  return null;
+export default function AssistantRoute() {
+  return <WalletRoute initialView="agent" />;
 }

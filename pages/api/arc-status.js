@@ -1,5 +1,9 @@
+import { enforceRateLimit } from "../../lib/api-security";
+
 const mode =
-  String(process.env.ARC_NETWORK || process.env.NEXT_PUBLIC_ARC_NETWORK || "testnet").toLowerCase() === "mainnet"
+  String(
+    process.env.ARC_NETWORK || process.env.NEXT_PUBLIC_ARC_NETWORK || "testnet"
+  ).toLowerCase() === "mainnet"
     ? "mainnet"
     : "testnet";
 const mainnetRequested = mode === "mainnet";
@@ -38,6 +42,7 @@ export default async function handler(req, res) {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed" });
   }
+  if (!enforceRateLimit(req, res, { scope: "arc-status", limit: 60 })) return;
 
   const startedAt = Date.now();
 
@@ -58,16 +63,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    const [chainIdHex, blockHex] = await Promise.all([
-      rpc("eth_chainId"),
-      rpc("eth_blockNumber")
-    ]);
+    const [chainIdHex, blockHex] = await Promise.all([rpc("eth_chainId"), rpc("eth_blockNumber")]);
 
     const chainId = Number.parseInt(chainIdHex, 16);
     const blockNumber = Number.parseInt(blockHex, 16);
     const chainMatches = chainId === expectedChainId;
 
-    res.setHeader("Cache-Control", "s-maxage=8, stale-while-revalidate=20");
+    res.setHeader("Cache-Control", "public, s-maxage=30, stale-while-revalidate=120");
     return res.status(chainMatches ? 200 : 503).json({
       ok: chainMatches,
       network: networkName,
