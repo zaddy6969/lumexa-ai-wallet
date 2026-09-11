@@ -1,8 +1,8 @@
 export async function getServerSideProps() {
   return {
     redirect: {
-      destination: "/#portfolio",
-      permanent: false
+      destination: "/",
+      permanent: true
     }
   };
 }

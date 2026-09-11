@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useAccount, useChainId, useSwitchChain } from "wagmi";
 import {
   ARC_MAINNET_CHAIN_ID,
@@ -16,7 +16,9 @@ function formatLaunchDate(value) {
   if (!value) return "Sep 16";
   const [year, month, day] = String(value).split("-").map(Number);
   if (!year || !month || !day) return "Sep 16";
-  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(Date.UTC(year, month - 1, day)));
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(
+    new Date(Date.UTC(year, month - 1, day))
+  );
 }
 
 export default function NetworkSwitcher({ compact = false }) {
@@ -29,13 +31,6 @@ export default function NetworkSwitcher({ compact = false }) {
   const currentChain = useMemo(() => getChain(chainId), [chainId]);
   const busy = isPending || manualPending;
   const launchLabel = formatLaunchDate(ARC_PUBLIC_MAINNET_LAUNCH_DATE);
-
-  useEffect(() => {
-    if (requestedChainId && Number(chainId) === Number(requestedChainId)) {
-      setRequestedChainId(null);
-      setError("");
-    }
-  }, [chainId, requestedChainId]);
 
   const handleChange = async (event) => {
     const nextChainId = Number(event.target.value);
@@ -61,20 +56,40 @@ export default function NetworkSwitcher({ compact = false }) {
   const displayValue = requestedChainId || (currentChain ? currentChain.id : "");
 
   return (
-    <div className={`network-switcher wallet-v3-network-switcher ${compact ? "network-switcher-compact" : ""}`}>
+    <div
+      className={`network-switcher network-switcher-panel ${compact ? "network-switcher-compact" : ""}`}
+    >
       <label>
-        <span className="wallet-v3-network-dot" aria-hidden="true" />
-        <select value={displayValue} onChange={handleChange} disabled={busy || !isConnected} aria-label="Switch network">
-          {!currentChain && !requestedChainId ? <option value="">Unsupported network</option> : null}
+        <span className="network-dot" aria-hidden="true" />
+        <span className="network-mobile-label" aria-hidden="true">
+          Arc
+        </span>
+        <select
+          value={displayValue}
+          onChange={handleChange}
+          disabled={busy || !isConnected}
+          aria-label="Switch network"
+        >
+          {!currentChain && !requestedChainId ? (
+            <option value="">Unsupported network</option>
+          ) : null}
           {MULTICHAIN_WALLET_CHAINS.map((chain) => (
-            <option key={chain.id} value={chain.id}>{chain.name}</option>
+            <option key={chain.id} value={chain.id}>
+              {chain.name}
+            </option>
           ))}
           {!ARC_MAINNET_REQUESTED ? (
-            <option value={ARC_MAINNET_CHAIN_ID} disabled>Arc Mainnet — {launchLabel}</option>
+            <option value={ARC_MAINNET_CHAIN_ID} disabled>
+              Arc Mainnet — {launchLabel}
+            </option>
           ) : null}
         </select>
       </label>
-      {busy ? <small>Switching network…</small> : error ? <small role="alert">{error}</small> : null}
+      {busy ? (
+        <small>Switching network…</small>
+      ) : error ? (
+        <small role="alert">{error}</small>
+      ) : null}
     </div>
   );
 }

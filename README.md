@@ -1,158 +1,92 @@
 # Lumexa AI Wallet
 
-Lumexa AI Wallet is a self-custodial USDC wallet built on Arc and enhanced with AI-assisted wallet actions.
+Lumexa is a focused, self-custodial USDC wallet for Arc. It combines explicit transaction review, cross-network testnet balances, recent public activity, and a local-first wallet copilot.
 
-## What it includes
+The current deployment is a testnet product. Test tokens are never presented as real dollar wealth.
 
-- single-page `Dashboard`
-- real `Send USDC`
-- real `Receive`
-- real `Bridge USDC to Arc`
-- integrated `Lumexa AI Agent`
-- live `Activity`
-- `LumexaWalletAssistant` smart contract on Arc Testnet
+## Product scope
 
-The app uses Lumexa as the product brand while Arc remains the underlying network and infrastructure.
+- `/` — wallet overview, assets, and cross-network balances
+- `/send` — review and send USDC on Arc
+- `/receive` — share an address or exact EIP-681 payment request
+- `/swap` — fetch a live Circle App Kit quote and approve in the wallet
+- `/bridge` — bridge USDC across configured Arc, Ethereum, and Base networks
+- `/activity` — bounded recent explorer history plus locally submitted actions
+- `/assistant` — local-first explanations with explicit cloud-AI consent
+- `/privacy` and `/terms` — product disclosures
+
+Legacy portfolio and unified-balance URLs redirect to the wallet overview.
+
+## Trust model
+
+- Lumexa does not hold private keys or sign transactions.
+- Every state-changing action is reviewed and approved in the connected wallet.
+- The assistant processes wallet questions locally by default.
+- Cloud AI is opt-in for the browser session. When enabled, Lumexa sends a minimized snapshot without the wallet address or full transaction hashes.
+- AI provider keys remain server-side.
+- Circle App Kit runs through its permissionless client path; no Circle API key is exposed or proxied through the browser.
+- Public API routes validate input, apply bounded work, and use best-effort per-instance rate limits.
+
+This is not a security audit, financial advice, or a guarantee about third-party contracts or bridges.
 
 ## Stack
 
-- Next.js
-- React
-- RainbowKit
-- wagmi
-- viem
-- Arc App Kit
-- OpenAI API
-- Hardhat / Solidity
-
-## Routes
-
-- `/` single-page dashboard for all wallet actions
-- `/send`, `/bridge`, `/assistant`, `/activity` redirect back to the matching dashboard view for backward compatibility
-- `/unified-balance` redirects home because Unified Balance has been removed from the product
-
-## Environment variables
-
-Copy `.env.example` to `.env.local` and set:
-
-```bash
-NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
-NEXT_PUBLIC_SITE_URL=https://lumexa-ai-wallet.vercel.app
-NEXT_PUBLIC_ARC_RPC_URL=https://rpc.testnet.arc.network
-NEXT_PUBLIC_ARC_TESTNET_USDC_ADDRESS=0x3600000000000000000000000000000000000000
-NEXT_PUBLIC_ARC_TESTNET_EURC_ADDRESS=0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a
-NEXT_PUBLIC_ARC_TESTNET_CIRBTC_ADDRESS=0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF
-NEXT_PUBLIC_LUMEXA_ASSISTANT_CONTRACT_ADDRESS=
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_MODEL=gpt-5.4-mini
-```
-
-Notes:
-
-- `OPENAI_API_KEY` is only used server-side through `/api/ai`
-- do not put private keys or seed phrases in frontend environment variables
-- `ARC_TESTNET_PRIVATE_KEY` is only for secure contract deployment and must be kept in a local secret store or GitHub Actions secret
-- `KIT_KEY` is intentionally not used by the public dashboard today because a secure browser-wallet Swap flow needs a larger architecture change before launch
+- Next.js Pages Router and React
+- RainbowKit, wagmi, viem, and ethers
+- Circle App Kit
+- TanStack Query
+- Optional OpenAI or Vercel AI Gateway provider
 
 ## Local development
 
 ```bash
-npm install
-npm run build
-npm run dev
+cp .env.example .env.local
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
-Open:
+Open `http://localhost:3000`.
 
-- `http://localhost:3000`
-
-## How to test
-
-### 1. Dashboard
-
-1. Open `/`
-2. Connect a wallet with MetaMask or WalletConnect
-3. Confirm the wallet address, Arc Testnet status, and USDC balance appear
-
-### 2. Send USDC
-
-1. Open `/`
-2. Connect wallet and switch to Arc Testnet
-3. Open the `Send` tab
-4. Enter a recipient and USDC amount
-5. Click `Estimate Fee`
-6. Click `Send USDC`
-7. Confirm in wallet
-8. Check the ArcScan transaction link and then confirm the action appears in the `Activity` tab
-
-### 3. Bridge USDC
-
-1. Open `/`
-2. Connect wallet
-3. Open the `Bridge` tab
-4. Choose `Ethereum Sepolia` or `Base Sepolia`
-5. Enter amount and recipient
-6. Click `Estimate Bridge`
-7. Click `Bridge USDC to Arc`
-8. Confirm in wallet
-9. Check the step feed and ArcScan/explorer links
-10. Confirm the bridge action appears in the `Activity` tab
-
-### 4. Lumexa AI Agent
-
-1. Open `/`
-2. Open the Lumexa AI Agent panel
-3. Connect wallet for live context, or ask general Arc/App Kit questions without connecting
-4. Ask:
-   - `Analyze my wallet`
-   - `How much USDC do I have?`
-   - `Show recent activity`
-   - `Explain Arc USDC gas`
-5. If `OPENAI_API_KEY` is missing, the assistant falls back to local wallet guidance
-
-### 5. Activity
-
-1. Open `/`
-2. Open the `Activity` tab
-3. Confirm real wallet events appear for:
-   - `Sent USDC`
-   - `Received USDC`
-   - `Bridge received`
-   - `Approval`
-4. Confirm in-app Send and Bridge actions are matched to live Arc activity when the tx hash is available
-
-## Lumexa assistant contract
-
-The contract source is `contracts/LumexaWalletAssistant.sol` and deployment metadata is stored in `lib/generated/lumexa-assistant-deployment.json`.
-
-Compile:
+## Quality checks
 
 ```bash
-pnpm contract:compile
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm audit:prod
+pnpm format:check
+pnpm build
 ```
 
-Deploy to Arc Testnet:
+`pnpm check` runs formatting, type checking, linting, unit tests, a production dependency gate, and a production build. The same checks run in GitHub Actions.
+
+Security policy and current upstream dependency constraints are documented in `SECURITY.md`.
+
+## Environment
+
+Copy `.env.example` and configure at minimum:
 
 ```bash
-ARC_TESTNET_PRIVATE_KEY=... LUMEXA_ASSISTANT_NAME="Lumexa AI Agent" pnpm contract:deploy:arc
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
+NEXT_PUBLIC_SITE_URL=https://your-domain.example
 ```
 
-For automated deployment, add `ARC_TESTNET_PRIVATE_KEY` as a GitHub Actions secret. Never commit the private key.
+Testnet Arc defaults are included. Cloud AI is optional:
+
+```bash
+OPENAI_API_KEY=
+OPENAI_MODEL=
+AI_GATEWAY_API_KEY=
+AI_GATEWAY_MODEL=
+```
+
+Do not place private keys, seed phrases, or server API keys in any `NEXT_PUBLIC_` variable.
 
 ## Deployment
 
-1. Push `main` to GitHub
-2. Import the repo into Vercel
-3. Set these Vercel environment variables:
-   - `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`
-   - `NEXT_PUBLIC_SITE_URL`
-   - `NEXT_PUBLIC_ARC_RPC_URL`
-   - `NEXT_PUBLIC_LUMEXA_ASSISTANT_CONTRACT_ADDRESS`
-   - `OPENAI_API_KEY`
-   - `OPENAI_MODEL`
-4. Redeploy
+The repository is linked to Vercel. Push a branch for a preview deployment, run the end-to-end verification flow there, then promote the verified commit to production.
 
-## Arc config
+Arc Testnet defaults:
 
 - Chain ID: `5042002`
 - RPC: `https://rpc.testnet.arc.network`

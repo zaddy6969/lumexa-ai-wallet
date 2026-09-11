@@ -30,7 +30,13 @@ function getActivityCategory(item, walletAddress) {
   const operation = String(item?.metadata?.operation || "").toLowerCase();
 
   if (kind === "swap" || type.includes("swap") || operation === "swap") return "swap";
-  if (kind === "bridge" || kind === "bridge_received" || type.includes("bridge") || operation === "bridge") return "bridge";
+  if (
+    kind === "bridge" ||
+    kind === "bridge_received" ||
+    type.includes("bridge") ||
+    operation === "bridge"
+  )
+    return "bridge";
 
   const sender = item?.sender || item?.from || "";
   const receiver = item?.receiver || item?.to || item?.recipient || "";
@@ -77,7 +83,8 @@ function getRoute(item) {
 
 function getCounterparty(item, walletAddress, category) {
   if (category === "swap" || category === "bridge") return getRoute(item);
-  if (category === "sent") return item?.receiver || item?.to || item?.recipient || item?.counterparty || "";
+  if (category === "sent")
+    return item?.receiver || item?.to || item?.recipient || item?.counterparty || "";
   if (category === "received") return item?.sender || item?.from || item?.counterparty || "";
   return item?.counterparty || "";
 }
@@ -86,28 +93,35 @@ function ActivityRow({ item, walletAddress }) {
   const category = getActivityCategory(item, walletAddress);
   const counterparty = getCounterparty(item, walletAddress, category);
   const title = getActivityTitle(item, category);
-  const status = item?.status || "Confirmed";
+  const status = item?.status || "Unknown";
 
   return (
-    <article className="wallet-v3-activity-row">
-      <span className={`wallet-v3-activity-icon is-${category}`}>
+    <article className="activity-row">
+      <span className={`activity-icon is-${category}`}>
         <FeatureIcon name={getActivityIcon(category)} />
       </span>
-      <div className="wallet-v3-activity-main">
+      <div className="activity-main">
         <strong>{title}</strong>
         <span>{item?.summary || counterparty || item?.chain || "Wallet transaction"}</span>
       </div>
-      <div className="wallet-v3-activity-route">
+      <div className="activity-route">
         <span>{counterparty ? shortenValue(counterparty) : item?.chain || "—"}</span>
         <small>{formatActivityDate(item?.createdAt, item?.timeLabel)}</small>
       </div>
-      <div className="wallet-v3-activity-amount">
+      <div className="activity-amount">
         <strong>{item?.amount || "Tracked"}</strong>
-        <span className={`wallet-v3-status is-${String(status).toLowerCase()}`}>{status}</span>
+        <span className={`activity-status is-${String(status).toLowerCase()}`}>{status}</span>
       </div>
-      <div className="wallet-v3-activity-link">
+      <div className="activity-link">
         {item?.explorerUrl ? (
-          <a href={item.explorerUrl} target="_blank" rel="noreferrer" aria-label="View transaction on explorer">↗</a>
+          <a
+            href={item.explorerUrl}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="View transaction on explorer"
+          >
+            ↗
+          </a>
         ) : (
           <span>—</span>
         )}
@@ -116,7 +130,13 @@ function ActivityRow({ item, walletAddress }) {
   );
 }
 
-export default function TransactionActivity({ walletSnapshot, items = [], liveStatus, liveError, onRefresh }) {
+export default function TransactionActivity({
+  walletSnapshot,
+  items = [],
+  liveStatus,
+  liveError,
+  onRefresh
+}) {
   const isSignedIn = walletSnapshot?.isSignedIn;
   const walletAddress = walletSnapshot?.address || "";
   const [activeFilter, setActiveFilter] = useState("all");
@@ -136,17 +156,17 @@ export default function TransactionActivity({ walletSnapshot, items = [], liveSt
   }, [items, walletAddress]);
 
   return (
-    <section className="wallet-v3-page-card wallet-v3-activity-page">
-      <header className="wallet-v3-page-head">
+    <section className="activity-page-card activity-page">
+      <header className="activity-page-head">
         <div>
-          <span className="wallet-v3-eyebrow">Transaction history</span>
+          <span className="activity-eyebrow">Transaction history</span>
           <h2>Activity</h2>
           <p>Onchain transfers and Lumexa wallet actions in one timeline.</p>
         </div>
         {isSignedIn ? (
           <button
             type="button"
-            className="wallet-v3-secondary-button"
+            className="secondary-button"
             onClick={onRefresh}
             disabled={liveStatus === "loading" || liveStatus === "refreshing"}
           >
@@ -156,7 +176,7 @@ export default function TransactionActivity({ walletSnapshot, items = [], liveSt
       </header>
 
       {isSignedIn ? (
-        <div className="wallet-v3-filter-tabs" role="tablist" aria-label="Activity filters">
+        <div className="activity-filter-tabs" role="tablist" aria-label="Activity filters">
           {FILTERS.map((filter) => (
             <button
               key={filter.id}
@@ -164,30 +184,48 @@ export default function TransactionActivity({ walletSnapshot, items = [], liveSt
               className={activeFilter === filter.id ? "is-active" : ""}
               onClick={() => setActiveFilter(filter.id)}
             >
-              {filter.label}<span>{counts[filter.id] || 0}</span>
+              {filter.label}
+              <span>{counts[filter.id] || 0}</span>
             </button>
           ))}
         </div>
       ) : null}
 
       {!isSignedIn ? (
-        <div className="wallet-v3-empty"><strong>Connect a wallet to view activity.</strong></div>
+        <div className="activity-empty">
+          <strong>Connect a wallet to view activity.</strong>
+        </div>
       ) : liveStatus === "loading" && !items.length ? (
-        <div className="wallet-v3-empty"><strong>Loading wallet activity…</strong><span>Reading recent onchain events.</span></div>
+        <div className="activity-empty">
+          <strong>Loading wallet activity…</strong>
+          <span>Reading recent onchain events.</span>
+        </div>
       ) : !filteredItems.length ? (
-        <div className="wallet-v3-empty">
+        <div className="activity-empty">
           <strong>No {activeFilter === "all" ? "wallet" : activeFilter} activity yet.</strong>
-          <span>Completed Lumexa actions will appear here immediately and reconcile with onchain data.</span>
+          <span>
+            Completed Lumexa actions will appear here immediately and reconcile with onchain data.
+          </span>
         </div>
       ) : (
-        <div className="wallet-v3-activity-table">
-          <div className="wallet-v3-activity-header"><span>Activity</span><span>Route / counterparty</span><span>Amount</span><span /></div>
-          {filteredItems.map((item) => <ActivityRow key={item.id} item={item} walletAddress={walletAddress} />)}
+        <div className="activity-table">
+          <div className="activity-header">
+            <span>Activity</span>
+            <span>Route / counterparty</span>
+            <span>Amount</span>
+            <span />
+          </div>
+          {filteredItems.map((item) => (
+            <ActivityRow key={item.id} item={item} walletAddress={walletAddress} />
+          ))}
         </div>
       )}
 
       {liveStatus === "error" ? (
-        <div className="wallet-v3-inline-warning"><strong>Live Arc sync is unavailable.</strong><span>{liveError || "Local Lumexa actions are still shown."}</span></div>
+        <div className="inline-warning">
+          <strong>Live Arc sync is unavailable.</strong>
+          <span>{liveError || "Local Lumexa actions are still shown."}</span>
+        </div>
       ) : null}
     </section>
   );

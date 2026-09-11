@@ -1,12 +1,5 @@
-export async function getServerSideProps() {
-  return {
-    redirect: {
-      destination: "/#send",
-      permanent: false
-    }
-  };
-}
+import WalletRoute from "../components/wallet-route";
 
-export default function SendRedirect() {
-  return null;
+export default function SendRoute() {
+  return <WalletRoute initialView="send" />;
 }

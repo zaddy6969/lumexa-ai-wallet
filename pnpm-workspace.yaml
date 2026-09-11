@@ -2,4 +2,29 @@ allowBuilds:
   bufferutil: true
   keccak: true
   sharp: true
+  unrs-resolver: false
   utf-8-validate: true
+overrides:
+  "@babel/core@7.29.0": "8.0.1"
+  "axios@1.13.6": "1.18.0"
+  "baseline-browser-mapping@2.10.29": "2.11.21"
+  "browserslist@4.28.2": "4.28.7"
+  "decode-uri-component@0.2.2": "0.5.0"
+  "form-data@4.0.5": "4.0.6"
+  "hono@4.12.18": "4.13.7"
+  "shell-quote@1.8.3": "1.10.0"
+  "socket.io-parser@4.2.6": "4.2.7"
+  "toml@3.0.0": "4.2.0"
+  "ua-parser-js@2.0.9": "2.0.10"
+  "use-sync-external-store@1.2.0": "1.6.0"
+  "use-sync-external-store@1.4.0": "1.6.0"
+  "utf-8-validate@6.0.6": "5.0.10"
+  "uuid@8.3.2": "11.1.1"
+  "uuid@9.0.1": "11.1.1"
+  "ws@7.5.10": "7.5.11"
+  "ws@8.18.0": "8.21.0"
+  "ws@8.18.3": "8.21.0"
+  "ws@8.20.0": "8.21.0"
+peerDependencyRules:
+  allowedVersions:
+    ws: ">=7.5.11"

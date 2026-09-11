@@ -1,12 +1,5 @@
-export async function getServerSideProps() {
-  return {
-    redirect: {
-      destination: "/#bridge",
-      permanent: false
-    }
-  };
-}
+import WalletRoute from "../components/wallet-route";
 
-export default function BridgeRedirect() {
-  return null;
+export default function BridgeRoute() {
+  return <WalletRoute initialView="bridge" />;
 }
