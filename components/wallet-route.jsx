@@ -8,6 +8,7 @@ import { useArcWalletSnapshot } from "../lib/use-arc-wallet-snapshot";
 import { useWalletAppState } from "../lib/use-wallet-app-state";
 import { switchWalletNetwork } from "../lib/wallet-network";
 import AppShell from "./app-shell";
+import { usePreparedWalletAction } from "./prepared-wallet-action-provider";
 import TransactionNotice from "./transaction-notice";
 import WalletLoginScreen from "./wallet-login-screen";
 import WalletSidebar from "./wallet-sidebar";
@@ -87,9 +88,14 @@ function ConnectedWalletExperience({ initialView, initialReceiveOpen, walletSnap
   } = useWalletAppState(walletSnapshot);
   const { connector } = useAccount();
   const { switchChainAsync } = useSwitchChain();
+  const { preparedAction, prepareAction, clearPreparedAction } = usePreparedWalletAction();
+  const [copilotAction] = useState(() => preparedAction);
   const [receiveOpen, setReceiveOpen] = useState(Boolean(initialReceiveOpen));
   const [assistantPrompt, setAssistantPrompt] = useState(null);
-  const [copilotAction, setCopilotAction] = useState(null);
+
+  useEffect(() => {
+    if (copilotAction?.id) clearPreparedAction(copilotAction.id);
+  }, [clearPreparedAction, copilotAction]);
 
   useEffect(() => {
     const legacyView = String(window.location.hash || "").replace(/^#/, "");
@@ -105,14 +111,14 @@ function ConnectedWalletExperience({ initialView, initialReceiveOpen, walletSnap
   const selectView = useCallback(
     (requestedView) => {
       const view = normalizeWalletView(requestedView);
-      setCopilotAction(null);
+      clearPreparedAction();
       if (view === "receive") {
         setReceiveOpen(true);
         return;
       }
       void router.push(VIEW_ROUTES[view]);
     },
-    [router]
+    [clearPreparedAction, router]
   );
 
   const openPreparedView = useCallback(
@@ -122,10 +128,10 @@ function ConnectedWalletExperience({ initialView, initialReceiveOpen, walletSnap
         setReceiveOpen(true);
         return;
       }
-      setCopilotAction({ ...action, id: action.id || `${Date.now()}-${Math.random()}` });
+      prepareAction(action);
       void router.push(VIEW_ROUTES[view]);
     },
-    [router]
+    [prepareAction, router]
   );
 
   const handleCopilotAction = useCallback(

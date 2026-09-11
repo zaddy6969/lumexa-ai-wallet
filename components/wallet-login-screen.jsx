@@ -10,10 +10,15 @@ import {
 import { FeatureIcon } from "./wallet-sidebar";
 import SiteFooter from "./site-footer";
 
+const IS_TESTNET = Boolean(arcActiveChain.testnet);
 const FEATURES = [
   { icon: "send", title: "Send", copy: "Review the recipient and fee before signing." },
   { icon: "swap", title: "Swap", copy: "Use live quotes with clear slippage limits." },
-  { icon: "bridge", title: "Bridge", copy: "Move USDC across supported test networks." }
+  {
+    icon: "bridge",
+    title: "Bridge",
+    copy: `Move USDC across supported ${IS_TESTNET ? "test " : ""}networks.`
+  }
 ];
 
 export default function WalletLoginScreen({ providerError = "", providerUnavailable = false }) {
@@ -138,11 +143,15 @@ export default function WalletLoginScreen({ providerError = "", providerUnavaila
           <div className="connect-meta">
             <span>Non-custodial</span>
             <span>USDC gas</span>
-            <span>Testnet</span>
+            <span>{IS_TESTNET ? "Testnet" : "Mainnet"}</span>
           </div>
-          <div className="testnet-notice">
-            <strong>Testnet environment</strong>
-            <span>Assets shown here have no real-world monetary value.</span>
+          <div className="testnet-notice" data-environment={IS_TESTNET ? "testnet" : "mainnet"}>
+            <strong>{IS_TESTNET ? "Testnet environment" : "Mainnet environment"}</strong>
+            <span>
+              {IS_TESTNET
+                ? "Assets shown here have no real-world monetary value."
+                : "Assets may have real-world value. Verify every detail before signing."}
+            </span>
           </div>
           <small className="wallet-support">
             Browser wallets · Safe{hasWalletConnectProjectId ? " · WalletConnect" : ""}

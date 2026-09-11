@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { memo } from "react";
+import { MULTICHAIN_WALLET_CHAINS, arcActiveChain } from "../lib/arc-chain";
 import { FeatureIcon } from "./wallet-sidebar";
 
 function shortAddress(value) {
@@ -77,6 +78,9 @@ const WalletDashboard = memo(function WalletDashboard({
     ? balancesQuery.data.networks
     : [];
   const fundedAssets = assets.filter((asset) => Number(asset?.balanceValue || 0) > 0);
+  const activeChain = walletSnapshot?.activeChain || arcActiveChain;
+  const isTestnet = Boolean(activeChain.testnet);
+  const supportedNetworkNames = MULTICHAIN_WALLET_CHAINS.map((chain) => chain.name).join(", ");
   const activeBalance =
     walletSnapshot?.usdcBalance ||
     (walletSnapshot?.balanceStatus === "loading" ? "Syncing…" : "0.00 USDC");
@@ -138,12 +142,18 @@ const WalletDashboard = memo(function WalletDashboard({
         </div>
       </header>
 
-      <div className="testnet-banner" role="note">
+      <div
+        className="testnet-banner"
+        role="note"
+        data-environment={isTestnet ? "testnet" : "mainnet"}
+      >
         <span aria-hidden="true">i</span>
         <div>
-          <strong>Arc Testnet</strong>
+          <strong>{isTestnet ? `${activeChain.name} environment` : "Mainnet wallet"}</strong>
           <p>
-            All balances and assets shown in Lumexa currently have no real-world monetary value.
+            {isTestnet
+              ? "Balances and assets on this network have no real-world monetary value."
+              : "Assets may have real-world value. Verify the network, token, amount, and recipient before signing."}
           </p>
         </div>
       </div>
@@ -151,7 +161,7 @@ const WalletDashboard = memo(function WalletDashboard({
       {!walletSnapshot?.supportedNetwork ? (
         <div className="alert is-error">
           <strong>Unsupported network</strong>
-          <span>Switch to Arc, Ethereum Sepolia, or Base Sepolia from the network selector.</span>
+          <span>Switch to {supportedNetworkNames} from the network selector.</span>
         </div>
       ) : null}
 
@@ -166,7 +176,7 @@ const WalletDashboard = memo(function WalletDashboard({
             <i />
             <span>Public onchain balance</span>
             <i />
-            <span>No fiat valuation on testnet</span>
+            <span>{isTestnet ? "No fiat valuation on testnet" : "Live onchain assets"}</span>
           </div>
         </div>
         <div className="network-health-card">
@@ -257,14 +267,14 @@ const WalletDashboard = memo(function WalletDashboard({
                   </small>
                 </article>
               ))
-            : ["Arc Testnet", "Ethereum Sepolia", "Base Sepolia"].map((name) => (
-                <article key={name}>
+            : MULTICHAIN_WALLET_CHAINS.map((chain) => (
+                <article key={chain.id}>
                   <div>
                     <span className="network-dot" />
-                    <strong>{name}</strong>
+                    <strong>{chain.name}</strong>
                   </div>
                   <p>{balancesQuery.isError ? "Sync unavailable" : "Syncing…"}</p>
-                  <small>Testnet</small>
+                  <small>{chain.testnet ? "Testnet" : "Mainnet"}</small>
                 </article>
               ))}
         </div>
@@ -296,7 +306,15 @@ const WalletDashboard = memo(function WalletDashboard({
                   </span>
                   <span className="asset-balance">
                     <strong>{asset.balance || `0 ${asset.symbol}`}</strong>
-                    <small>{asset.native ? "Testnet gas asset" : "Testnet token"}</small>
+                    <small>
+                      {isTestnet
+                        ? asset.native
+                          ? "Testnet gas asset"
+                          : "Testnet token"
+                        : asset.native
+                          ? "Mainnet gas asset"
+                          : "Mainnet token"}
+                    </small>
                   </span>
                 </div>
               ))

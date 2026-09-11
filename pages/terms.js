@@ -1,17 +1,22 @@
 import LegalPage from "../components/legal-page";
+import { MULTICHAIN_WALLET_CHAINS, arcActiveChain } from "../lib/arc-chain";
 
 export default function TermsPage() {
+  const isTestnet = Boolean(arcActiveChain.testnet);
+  const supportedNetworks = MULTICHAIN_WALLET_CHAINS.map((chain) => chain.name).join(", ");
   return (
     <LegalPage
-      title="Terms and testnet notice"
+      title="Terms and network notice"
       description="Important terms for using Lumexa AI Wallet."
     >
       <section>
-        <h2>Testnet software</h2>
+        <h2>{isTestnet ? "Testnet software" : "Mainnet software"}</h2>
         <p>
-          Lumexa currently operates with Arc Testnet and supported test networks. Testnet tokens
-          have no real-world monetary value. Features may change, reset, or become temporarily
-          unavailable as networks and integrations evolve.
+          Lumexa is configured for {supportedNetworks}.{" "}
+          {isTestnet
+            ? "Tokens on these test networks have no real-world monetary value."
+            : "Assets on these networks may have real-world monetary value."}{" "}
+          Features may change or become temporarily unavailable as networks and integrations evolve.
         </p>
       </section>
       <section>

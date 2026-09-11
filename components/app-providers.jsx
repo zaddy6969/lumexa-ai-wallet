@@ -11,6 +11,7 @@ import {
   hasWalletConnectProjectId,
   walletConnectProjectId
 } from "../lib/arc-chain";
+import { PreparedWalletActionProvider } from "./prepared-wallet-action-provider";
 import WalletLoginScreen from "./wallet-login-screen";
 
 function ProviderFallback({ message }) {
@@ -163,7 +164,7 @@ export default function AppProviders({ children }) {
       <WagmiProvider config={walletConfigState.config}>
         <QueryClientProvider client={queryClient}>
           <RainbowKitProvider initialChain={arcActiveChain} theme={rainbowTheme}>
-            {children}
+            <PreparedWalletActionProvider>{children}</PreparedWalletActionProvider>
           </RainbowKitProvider>
         </QueryClientProvider>
       </WagmiProvider>

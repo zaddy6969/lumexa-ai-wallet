@@ -678,6 +678,20 @@ select {
   font-size: 12px;
 }
 
+.testnet-banner[data-environment="mainnet"],
+.testnet-notice[data-environment="mainnet"],
+.receive-warning[data-environment="mainnet"] {
+  border-color: color-mix(in srgb, var(--danger) 25%, var(--line));
+  background: var(--danger-soft);
+}
+
+.testnet-banner[data-environment="mainnet"] > span,
+.testnet-banner[data-environment="mainnet"] strong,
+.testnet-notice[data-environment="mainnet"] strong,
+.receive-warning[data-environment="mainnet"] strong {
+  color: var(--danger);
+}
+
 .alert,
 .transaction-alert,
 .inline-warning {

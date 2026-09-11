@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { arcActiveChain } from "../lib/arc-chain";
 
 export default function SiteFooter({ compact = false }) {
   return (
@@ -15,7 +16,7 @@ export default function SiteFooter({ compact = false }) {
           Support
         </a>
       </nav>
-      <span>Non-custodial · Testnet</span>
+      <span>Non-custodial · {arcActiveChain.testnet ? "Testnet" : "Mainnet"}</span>
     </footer>
   );
 }

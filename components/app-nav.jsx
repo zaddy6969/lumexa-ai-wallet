@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { arcActiveChain } from "../lib/arc-chain";
 import NetworkSwitcher from "./network-switcher";
 
 function shortAddress(address) {
@@ -49,8 +50,15 @@ export default function AppNav({
         </Link>
 
         <div className="topbar-controls">
-          <span className="environment-pill" title="Testnet assets have no real-world value">
-            <i aria-hidden="true" /> Arc Testnet
+          <span
+            className="environment-pill"
+            title={
+              arcActiveChain.testnet
+                ? "Testnet assets have no real-world value"
+                : "Mainnet assets may have real-world value"
+            }
+          >
+            <i aria-hidden="true" /> {arcActiveChain.name}
           </span>
           <NetworkSwitcher compact />
           <button

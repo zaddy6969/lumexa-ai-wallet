@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { QRCodeSVG } from "qrcode.react";
-import { ARC_USDC_ERC20_ADDRESS, arcTestnet } from "../../lib/arc-chain";
+import { ARC_PORTFOLIO_TOKENS, ARC_USDC_ERC20_ADDRESS, arcTestnet } from "../../lib/arc-chain";
 import {
   cleanNote,
   createEip681TokenRequest,
@@ -20,7 +20,7 @@ type ReceiveModalProps = {
 type FeedbackState = { tone: "success" | "error"; message: string } | null;
 type ReceiveMode = "address" | "request";
 
-const RECEIVE_ASSETS = ["USDC", "EURC", "cirBTC"];
+const RECEIVE_ASSETS = ARC_PORTFOLIO_TOKENS.map((asset) => asset.symbol);
 const subscribeToClient = () => () => {};
 
 function shortenAddress(address?: string) {
@@ -52,7 +52,7 @@ export default function ReceiveModal({
   open,
   onClose,
   address = "",
-  networkLabel = "Arc Testnet"
+  networkLabel = arcTestnet.name
 }: ReceiveModalProps) {
   const mounted = useSyncExternalStore(
     subscribeToClient,
@@ -143,7 +143,7 @@ export default function ReceiveModal({
 
   const textToShare =
     mode === "request"
-      ? `${amount} USDC requested on Arc Testnet${note.trim() ? ` — ${note.trim()}` : ""}\n${requestUri}`
+      ? `${amount} USDC requested on ${networkLabel}${note.trim() ? ` — ${note.trim()}` : ""}\n${requestUri}`
       : `Receive on ${networkLabel}: ${address}`;
 
   const handleCopy = async () => {
@@ -334,7 +334,7 @@ export default function ReceiveModal({
               </strong>
               <small>
                 {mode === "request"
-                  ? `To ${shortAddress || "connected wallet"} on Arc Testnet`
+                  ? `To ${shortAddress || "connected wallet"} on ${networkLabel}`
                   : address || "Wallet address unavailable"}
               </small>
             </div>
@@ -362,20 +362,28 @@ export default function ReceiveModal({
                   {isSharing ? "Sharing…" : "Share"}
                 </button>
               ) : null}
-              <a
-                className="button button-secondary"
-                href="https://faucet.circle.com"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Faucet
-              </a>
+              {arcTestnet.testnet ? (
+                <a
+                  className="button button-secondary"
+                  href="https://faucet.circle.com"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Faucet
+                </a>
+              ) : null}
             </div>
 
-            <div className="receive-warning" role="note">
-              <strong>Testnet only</strong>
+            <div
+              className="receive-warning"
+              role="note"
+              data-environment={arcTestnet.testnet ? "testnet" : "mainnet"}
+            >
+              <strong>{arcTestnet.testnet ? "Testnet only" : "Mainnet asset"}</strong>
               <p>
-                Verify the network before sending. Testnet assets have no real-world monetary value.
+                {arcTestnet.testnet
+                  ? "Verify the network before sending. Testnet assets have no real-world monetary value."
+                  : "This request can transfer assets with real-world value. Verify the network, token, and address before sending."}
               </p>
             </div>
             {feedback ? (
