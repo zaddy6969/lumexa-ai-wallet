@@ -77,6 +77,70 @@ test("local intelligence carries action details through a follow-up", () => {
   assert.equal(result.actions[0]?.args.recipient, RECIPIENT);
 });
 
+test("local intelligence reconstructs the latest confirmed transfer for review", () => {
+  const result = generateLocalAssistantResponse({
+    question: "Make the same transaction as the last one",
+    messages: [],
+    context: walletContext()
+  });
+
+  assert.equal(result.actions[0]?.tool, "prepare_send");
+  assert.deepEqual(result.actions[0]?.args, {
+    recipient: RECIPIENT,
+    amount: "3"
+  });
+  assert.match(result.answer, /nothing has been submitted/i);
+});
+
+test("local intelligence reconstructs a confirmed bridge from saved route metadata", () => {
+  const context = walletContext();
+  context.activity.items = [
+    {
+      type: "Bridge",
+      kind: "bridge",
+      amount: "10 USDC",
+      chain: "Arc Testnet → Base Sepolia",
+      status: "Confirmed",
+      metadata: {
+        operation: "bridge",
+        sourceNetwork: "Arc Testnet",
+        destinationNetwork: "Base Sepolia"
+      }
+    }
+  ];
+
+  const result = generateLocalAssistantResponse({
+    question: "Repeat my latest transaction",
+    messages: [],
+    context
+  });
+
+  assert.equal(result.actions[0]?.tool, "prepare_bridge");
+  assert.deepEqual(result.actions[0]?.args, {
+    sourceNetwork: "arc",
+    destinationNetwork: "base-sepolia",
+    amount: "10"
+  });
+  assert.match(result.answer, /verify the live route/i);
+});
+
+test("local intelligence refuses to duplicate an unconfirmed transaction", () => {
+  const context = walletContext();
+  context.activity.items[0].status = "Pending";
+
+  const result = generateLocalAssistantResponse({
+    question: "Repeat my last transaction",
+    messages: [],
+    context
+  });
+
+  assert.equal(
+    result.actions.some((action) => action.tool.startsWith("prepare_")),
+    false
+  );
+  assert.match(result.answer, /will not prepare a duplicate until the original is confirmed/i);
+});
+
 test("local intelligence prepares swaps and infers the active bridge source", () => {
   const swap = generateLocalAssistantResponse({
     question: "Swap 10 USDC to EURC at 0.5%",
