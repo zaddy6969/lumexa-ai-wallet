@@ -1,6 +1,5 @@
 import Image from "next/image";
 import Link from "next/link";
-import { arcActiveChain } from "../lib/arc-chain";
 import NetworkSwitcher from "./network-switcher";
 
 function shortAddress(address) {
@@ -24,6 +23,8 @@ function ThemeIcon({ theme }) {
 export default function AppNav({
   walletSnapshot,
   theme = "light",
+  mobileNavOpen = false,
+  onToggleMobileNav,
   onToggleTheme,
   onOpenAssistant
 }) {
@@ -50,16 +51,6 @@ export default function AppNav({
         </Link>
 
         <div className="topbar-controls">
-          <span
-            className="environment-pill"
-            title={
-              arcActiveChain.testnet
-                ? "Testnet assets have no real-world value"
-                : "Mainnet assets may have real-world value"
-            }
-          >
-            <i aria-hidden="true" /> {arcActiveChain.name}
-          </span>
           <NetworkSwitcher compact />
           <button
             type="button"
@@ -95,6 +86,17 @@ export default function AppNav({
               </button>
             </div>
           ) : null}
+          <button
+            type="button"
+            className="mobile-menu-button"
+            aria-label={mobileNavOpen ? "Close wallet navigation" : "Open wallet navigation"}
+            aria-expanded={mobileNavOpen}
+            onClick={onToggleMobileNav}
+          >
+            <span aria-hidden="true" />
+            <span aria-hidden="true" />
+            <span aria-hidden="true" />
+          </button>
         </div>
       </div>
     </header>
