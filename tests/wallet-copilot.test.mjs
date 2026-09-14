@@ -109,7 +109,10 @@ test("incomplete addresses never become prepared transactions", () => {
     context: walletContext()
   });
 
-  assert.equal(result.actions.some((action) => action.tool === "prepare_send"), false);
+  assert.equal(
+    result.actions.some((action) => action.tool === "prepare_send"),
+    false
+  );
   assert.match(result.answer, /full 42-character EVM address/i);
 });
 
