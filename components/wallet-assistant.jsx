@@ -14,9 +14,9 @@ const STARTER_PROMPTS = [
     icon: "activity"
   },
   {
-    label: "Check activity signals",
-    prompt: "Review the recent activity signals I can see. Do not give me a risk score.",
-    icon: "ai"
+    label: "Prepare a transfer",
+    prompt: "Help me prepare a USDC transfer.",
+    icon: "send"
   },
   {
     label: "Explain Arc gas",
@@ -270,6 +270,7 @@ export default function WalletAssistant({
       .slice(0, 800);
     if (!trimmed || loading) return;
 
+    const historyMessages = messages.slice(-8);
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     const nextMessages = [...messages.slice(-16), { role: "user", content: trimmed }];
@@ -290,7 +291,7 @@ export default function WalletAssistant({
           signal: requestRef.current.signal,
           body: JSON.stringify({
             question: trimmed,
-            messages: nextMessages.slice(-8),
+            messages: historyMessages,
             context: cloudContext
           })
         });
@@ -300,7 +301,11 @@ export default function WalletAssistant({
         }
         result = payload;
       } else {
-        result = generateLocalAssistantResponse({ question: trimmed, context });
+        result = generateLocalAssistantResponse({
+          question: trimmed,
+          messages: historyMessages,
+          context
+        });
       }
 
       if (requestId !== requestIdRef.current) return;
@@ -311,12 +316,16 @@ export default function WalletAssistant({
       setActions(Array.isArray(result.actions) ? result.actions : []);
     } catch (nextError) {
       if (requestId !== requestIdRef.current || nextError?.name === "AbortError") return;
-      const fallback = generateLocalAssistantResponse({ question: trimmed, context });
+      const fallback = generateLocalAssistantResponse({
+        question: trimmed,
+        messages: historyMessages,
+        context
+      });
       setMessages((current) => [
         ...current.slice(-17),
         { role: "assistant", content: fallback.answer }
       ]);
-      setActions([]);
+      setActions(Array.isArray(fallback.actions) ? fallback.actions : []);
       setError("Cloud AI was unavailable, so Lumexa answered locally instead.");
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
@@ -365,7 +374,7 @@ export default function WalletAssistant({
   };
 
   const showStarter = messages.length === 0 && !loading;
-  const providerLabel = useCloud ? providerName(provider) : "On-device rules";
+  const providerLabel = useCloud ? providerName(provider) : "Lumexa Intelligence";
 
   return (
     <section className="lumexa-ai-workspace">
@@ -376,11 +385,11 @@ export default function WalletAssistant({
           </span>
           <div>
             <strong>Lumexa Copilot</strong>
-            <small>Local-first wallet help</small>
+            <small>Private wallet intelligence</small>
           </div>
           <span className="lumexa-ai-live is-ready">
             <i />
-            {useCloud ? "Cloud on" : "Local"}
+            {useCloud ? "Cloud on" : "Local ready"}
           </span>
         </div>
 
@@ -491,16 +500,16 @@ export default function WalletAssistant({
             <strong>
               {useCloud
                 ? "Cloud AI is enabled for this session"
-                : "Wallet analysis stays in this browser"}
+                : "Lumexa Intelligence is active in this browser"}
             </strong>
             <span>
               {useCloud
-                ? `Questions and a minimized snapshot—without your address or full transaction hashes—go to ${providerName(provider)}.`
+                ? `Questions and a minimized snapshot—without your connected address or full transaction hashes—go to ${providerName(provider)}.`
                 : cloudAvailable
-                  ? "Turn on cloud AI only when you want broader answers or prepared actions."
+                  ? "Local analysis and prepared actions stay private. Turn on Advanced AI for broader model reasoning."
                   : providerChecked
-                    ? "No cloud provider is configured. Local wallet explanations remain available."
-                    : "Checking optional cloud availability…"}
+                    ? "Local analysis, conversation memory, and prepared actions are ready. Advanced AI is not configured."
+                    : "Local intelligence is ready while Advanced AI availability is checked…"}
             </span>
           </div>
           {cloudAvailable ? (
@@ -511,7 +520,7 @@ export default function WalletAssistant({
                 onChange={(event) => setCloudConsent(event.target.checked)}
               />
               <span aria-hidden="true" />
-              <b>{cloudEnabled ? "Cloud on" : "Cloud off"}</b>
+              <b>{cloudEnabled ? "Advanced on" : "Advanced AI"}</b>
             </label>
           ) : null}
         </div>
@@ -524,8 +533,8 @@ export default function WalletAssistant({
               </span>
               <h3>Understand your wallet</h3>
               <p>
-                Start with local explanations. Enable cloud AI only when you choose to share a
-                minimized snapshot.
+                Ask naturally about balances, activity, gas, or an action. Lumexa can prepare
+                review-only transactions without exposing your wallet keys.
               </p>
               <div className="lumexa-ai-starter-grid">
                 {STARTER_PROMPTS.map((item) => (
