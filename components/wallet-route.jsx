@@ -257,7 +257,7 @@ export default function WalletRoute({ initialView = "dashboard", initialReceiveO
       <Head>
         <title>{title}</title>
         <meta name="description" content={description} />
-        <meta name="theme-color" content="#f4f6fa" />
+        <meta name="theme-color" content="#061326" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <meta property="og:title" content={title} />
         <meta property="og:description" content={description} />
