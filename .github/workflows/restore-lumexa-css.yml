@@ -1,0 +1,88 @@
+name: Restore Lumexa stylesheet
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/restore-lumexa-css.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore stylesheet and fix AI composer
+        shell: bash
+        run: |
+          git show e13e88b8cd78c498e3187f73c7a13d300aab9ef6:styles/lumexa.css > styles/lumexa.css
+          cat >> styles/lumexa.css <<'CSS'
+
+          /* AI composer layout hotfix */
+          .lumexa-ai-composer-wrap {
+            width: 100%;
+            min-width: 0;
+          }
+
+          .lumexa-ai-composer {
+            width: 100%;
+            min-width: 0;
+            min-height: 76px;
+            grid-template-columns: minmax(145px, auto) minmax(240px, 1fr) 48px;
+            align-items: center;
+            overflow: hidden;
+          }
+
+          .lumexa-ai-composer-context {
+            min-width: 0;
+            max-width: 180px;
+            align-items: center;
+          }
+
+          .lumexa-ai-composer-context strong,
+          .lumexa-ai-composer-context small {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+
+          .lumexa-ai-composer textarea {
+            width: 100%;
+            min-width: 0;
+            overflow-y: auto;
+            scrollbar-width: none;
+          }
+
+          .lumexa-ai-composer textarea::-webkit-scrollbar {
+            display: none;
+          }
+
+          .lumexa-ai-send,
+          .lumexa-ai-stop {
+            flex: 0 0 44px;
+            align-self: center;
+          }
+
+          @media (max-width: 760px) {
+            .lumexa-ai-composer {
+              grid-template-columns: minmax(0, 1fr) 44px;
+              gap: 9px;
+              padding-left: 13px;
+            }
+
+            .lumexa-ai-composer-context {
+              display: none;
+            }
+          }
+          CSS
+          git config user.name "Lumexa Deploy Bot"
+          git config user.email "actions@github.com"
+          git add styles/lumexa.css
+          git commit -m "Restore wallet styles and fix AI composer layout"
+          git push
