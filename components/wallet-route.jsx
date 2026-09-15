@@ -54,7 +54,7 @@ const PAGE_META = {
   swap: ["Swap | Lumexa", "Get a live Arc swap quote and approve it from your wallet."],
   bridge: ["Bridge USDC | Lumexa", "Bridge USDC between supported networks and Arc."],
   activity: ["Activity | Lumexa", "Review your recent Arc wallet activity."],
-  agent: ["Ask Lumexa | Lumexa", "Get local-first explanations and optional AI wallet assistance."]
+  agent: ["Ask Lumexa | Lumexa", "Use model reasoning to analyze and prepare Arc wallet actions."]
 };
 
 function normalizeWalletView(view) {
@@ -257,7 +257,7 @@ export default function WalletRoute({ initialView = "dashboard", initialReceiveO
       <Head>
         <title>{title}</title>
         <meta name="description" content={description} />
-        <meta name="theme-color" content="#f4f6fa" />
+        <meta name="theme-color" content="#061326" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <meta property="og:title" content={title} />
         <meta property="og:description" content={description} />

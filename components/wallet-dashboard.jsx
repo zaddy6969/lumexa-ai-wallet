@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { memo } from "react";
+import { memo, useCallback, useState } from "react";
 import { MULTICHAIN_WALLET_CHAINS, arcActiveChain } from "../lib/arc-chain";
 import { FeatureIcon } from "./wallet-sidebar";
 
@@ -53,6 +53,7 @@ const WalletDashboard = memo(function WalletDashboard({
   onSelectView,
   onReceive
 }) {
+  const [addressCopied, setAddressCopied] = useState(false);
   const assets = readyAssets(walletSnapshot);
   const recent = activityItems.slice(0, 5);
   const address = walletSnapshot?.address || "";
@@ -65,15 +66,6 @@ const WalletDashboard = memo(function WalletDashboard({
     refetchInterval: 60_000,
     refetchIntervalInBackground: false
   });
-  const networkQuery = useQuery({
-    queryKey: ["arc-status"],
-    queryFn: ({ signal }) => getJson("/api/arc-status", signal),
-    enabled: Boolean(walletSnapshot?.onArc),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-    refetchIntervalInBackground: false
-  });
-
   const networkBalances = Array.isArray(balancesQuery.data?.networks)
     ? balancesQuery.data.networks
     : [];
@@ -84,38 +76,39 @@ const WalletDashboard = memo(function WalletDashboard({
   const activeBalance =
     walletSnapshot?.usdcBalance ||
     (walletSnapshot?.balanceStatus === "loading" ? "Syncing…" : "0.00 USDC");
-  const healthLabel = walletSnapshot?.supportedNetwork
-    ? walletSnapshot?.balanceStatus === "error"
-      ? "Needs attention"
-      : "Connected"
-    : "Unsupported";
+  const copyAddress = useCallback(async () => {
+    if (!address || !navigator?.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(address);
+      setAddressCopied(true);
+      window.setTimeout(() => setAddressCopied(false), 1800);
+    } catch {
+      setAddressCopied(false);
+    }
+  }, [address]);
 
   const actions = [
     {
       id: "send",
       label: "Send",
-      helper: "Transfer USDC",
       icon: "send",
       click: () => onSelectView?.("send")
     },
     {
       id: "receive",
       label: "Receive",
-      helper: "Address or request",
       icon: "receive",
       click: onReceive
     },
     {
       id: "swap",
       label: "Swap",
-      helper: "Get a live quote",
       icon: "swap",
       click: () => onSelectView?.("swap")
     },
     {
       id: "bridge",
       label: "Bridge",
-      helper: "Move across chains",
       icon: "bridge",
       click: () => onSelectView?.("bridge")
     }
@@ -125,38 +118,25 @@ const WalletDashboard = memo(function WalletDashboard({
     <section className="dashboard">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Wallet overview</span>
-          <h1>Your wallet</h1>
-          <p>
-            {shortAddress(address)} · {walletSnapshot?.activeChainName || "Unsupported network"}
-          </p>
+          <h1>Portfolio</h1>
+          <p>Your assets on {walletSnapshot?.activeChainName || "the active network"}</p>
         </div>
-        <div
-          className={`connection-status ${walletSnapshot?.supportedNetwork ? "is-online" : "is-error"}`}
+        <button
+          type="button"
+          className="address-button"
+          onClick={copyAddress}
+          disabled={!address}
+          aria-live="polite"
+          aria-label={addressCopied ? "Wallet address copied" : "Copy wallet address"}
         >
-          <i aria-hidden="true" />
-          <span>
-            <strong>{healthLabel}</strong>
-            <small>Chain ID {walletSnapshot?.chainId || "—"}</small>
-          </span>
-        </div>
+          <span>{addressCopied ? "Address copied" : "Copy address"}</span>
+          <code>{shortAddress(address)}</code>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="8" y="8" width="11" height="11" rx="2" />
+            <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+          </svg>
+        </button>
       </header>
-
-      <div
-        className="testnet-banner"
-        role="note"
-        data-environment={isTestnet ? "testnet" : "mainnet"}
-      >
-        <span aria-hidden="true">i</span>
-        <div>
-          <strong>{isTestnet ? `${activeChain.name} environment` : "Mainnet wallet"}</strong>
-          <p>
-            {isTestnet
-              ? "Balances and assets on this network have no real-world monetary value."
-              : "Assets may have real-world value. Verify the network, token, amount, and recipient before signing."}
-          </p>
-        </div>
-      </div>
 
       {!walletSnapshot?.supportedNetwork ? (
         <div className="alert is-error">
@@ -167,53 +147,26 @@ const WalletDashboard = memo(function WalletDashboard({
 
       <section className="balance-hero">
         <div className="balance-copy">
-          <span>Available on active network</span>
+          <span>Total balance</span>
           <strong>{activeBalance}</strong>
-          <div className="balance-meta">
-            <span>
-              {fundedAssets.length} funded {fundedAssets.length === 1 ? "asset" : "assets"}
+          <div className="balance-meta" role="note">
+            <span className="environment-status">
+              <i aria-hidden="true" />
+              {activeChain.name}
             </span>
-            <i />
-            <span>Public onchain balance</span>
-            <i />
-            <span>{isTestnet ? "No fiat valuation on testnet" : "Live onchain assets"}</span>
+            <span>
+              {isTestnet
+                ? "No real-world value"
+                : "Assets may have real-world value — verify before signing"}
+            </span>
           </div>
         </div>
-        <div className="network-health-card">
-          <span className="network-letter">
-            {walletSnapshot?.activeChainName?.slice(0, 1) || "?"}
-          </span>
+        <div className="balance-aside" aria-label="Wallet status">
+          <span>{fundedAssets.length}</span>
           <div>
-            <small>Active network</small>
-            <strong>{walletSnapshot?.activeChainName || "Unsupported"}</strong>
-            <span>
-              {walletSnapshot?.nativeSymbol
-                ? `Gas: ${walletSnapshot.nativeSymbol}`
-                : "Network data unavailable"}
-            </span>
+            <strong>Funded {fundedAssets.length === 1 ? "asset" : "assets"}</strong>
+            <small>Public onchain balance</small>
           </div>
-          {walletSnapshot?.onArc ? (
-            <dl>
-              <div>
-                <dt>Block</dt>
-                <dd>
-                  {networkQuery.data?.blockNumber
-                    ? Number(networkQuery.data.blockNumber).toLocaleString()
-                    : "Live"}
-                </dd>
-              </div>
-              <div>
-                <dt>RPC</dt>
-                <dd>
-                  {networkQuery.data?.latencyMs
-                    ? `${networkQuery.data.latencyMs} ms`
-                    : networkQuery.isError
-                      ? "Retrying"
-                      : "Ready"}
-                </dd>
-              </div>
-            </dl>
-          ) : null}
         </div>
       </section>
 
@@ -223,11 +176,7 @@ const WalletDashboard = memo(function WalletDashboard({
             <span className="action-icon">
               <FeatureIcon name={action.icon} />
             </span>
-            <span>
-              <strong>{action.label}</strong>
-              <small>{action.helper}</small>
-            </span>
-            <b aria-hidden="true">→</b>
+            <strong>{action.label}</strong>
           </button>
         ))}
       </div>
@@ -289,10 +238,15 @@ const WalletDashboard = memo(function WalletDashboard({
         <article className="panel assets-panel">
           <header className="section-heading">
             <div>
-              <span className="eyebrow">Active network</span>
               <h2>Assets</h2>
             </div>
+            <span className="section-context">{walletSnapshot?.activeChainName || "Network"}</span>
           </header>
+          <div className="asset-table-head" aria-hidden="true">
+            <span>Token</span>
+            <span>Balance</span>
+            <span>Network</span>
+          </div>
           <div className="asset-list">
             {assets.length ? (
               assets.map((asset) => (
@@ -316,6 +270,10 @@ const WalletDashboard = memo(function WalletDashboard({
                           : "Mainnet token"}
                     </small>
                   </span>
+                  <span className="asset-network">
+                    <i aria-hidden="true" />
+                    {walletSnapshot?.activeChainName || "Network"}
+                  </span>
                 </div>
               ))
             ) : (
@@ -334,8 +292,7 @@ const WalletDashboard = memo(function WalletDashboard({
         <article className="panel activity-preview">
           <header className="section-heading">
             <div>
-              <span className="eyebrow">Activity</span>
-              <h2>Recent transactions</h2>
+              <h2>Recent activity</h2>
             </div>
             <button type="button" onClick={() => onSelectView?.("activity")}>
               View all
@@ -374,6 +331,14 @@ const WalletDashboard = memo(function WalletDashboard({
           </div>
         </article>
       </div>
+
+      <button type="button" className="dashboard-copilot" onClick={() => onSelectView?.("agent")}>
+        <span className="dashboard-copilot-icon">
+          <FeatureIcon name="ai" />
+        </span>
+        <span>Ask Lumexa about this wallet…</span>
+        <kbd aria-hidden="true">↑</kbd>
+      </button>
     </section>
   );
 });

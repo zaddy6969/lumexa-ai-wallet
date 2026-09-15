@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { memo } from "react";
+import { useWalletShell } from "./app-shell";
 
 const ACTIONS = [
   { id: "dashboard", label: "Home", icon: "dashboard" },
@@ -88,9 +89,16 @@ export function FeatureIcon({ name }) {
 }
 
 function WalletSidebar({ activeView, onSelect, onReceive }) {
+  const { closeMobileNav } = useWalletShell();
+
+  const handleAction = (action) => {
+    closeMobileNav();
+    if (action.id === "receive") onReceive?.();
+    else onSelect?.(action.id);
+  };
+
   return (
-    <div className="sidebar">
-      <div className="sidebar-label">Wallet</div>
+    <aside className="sidebar" aria-label="Wallet navigation panel">
       <nav aria-label="Wallet navigation">
         {ACTIONS.map((action) => {
           const active = action.id === activeView;
@@ -99,7 +107,7 @@ function WalletSidebar({ activeView, onSelect, onReceive }) {
               key={action.id}
               type="button"
               className={active ? "is-active" : ""}
-              onClick={() => (action.id === "receive" ? onReceive?.() : onSelect?.(action.id))}
+              onClick={() => handleAction(action)}
               aria-current={active ? "page" : undefined}
             >
               <span>
@@ -111,17 +119,16 @@ function WalletSidebar({ activeView, onSelect, onReceive }) {
         })}
       </nav>
       <div className="sidebar-security">
-        <span aria-hidden="true">✓</span>
         <div>
-          <strong>Non-custodial</strong>
-          <small>Lumexa cannot access your keys or sign transactions.</small>
+          <strong>Self-custodial.</strong>
+          <small>Built for Arc.</small>
         </div>
       </div>
       <div className="sidebar-links">
         <Link href="/privacy">Privacy</Link>
         <Link href="/terms">Terms</Link>
       </div>
-    </div>
+    </aside>
   );
 }
 

@@ -1,6 +1,6 @@
 # Lumexa AI Wallet
 
-Lumexa is a focused, self-custodial USDC wallet for Arc. It combines explicit transaction review, cross-network testnet balances, recent public activity, and a local-first wallet copilot.
+Lumexa is a focused, self-custodial USDC wallet for Arc. It combines explicit transaction review, cross-network balances, recent public activity, and a model-backed wallet agent.
 
 The current deployment is a testnet product. Test tokens are never presented as real dollar wealth.
 
@@ -12,7 +12,7 @@ The current deployment is a testnet product. Test tokens are never presented as 
 - `/swap` — fetch a live Circle App Kit quote and approve in the wallet
 - `/bridge` — bridge USDC across configured Arc, Ethereum, and Base networks
 - `/activity` — bounded recent explorer history plus locally submitted actions
-- `/assistant` — local-first explanations with explicit cloud-AI consent
+- `/assistant` — real model reasoning with validated wallet action tools
 - `/privacy` and `/terms` — product disclosures
 
 Legacy portfolio and unified-balance URLs redirect to the wallet overview.
@@ -21,8 +21,9 @@ Legacy portfolio and unified-balance URLs redirect to the wallet overview.
 
 - Lumexa does not hold private keys or sign transactions.
 - Every state-changing action is reviewed and approved in the connected wallet.
-- The assistant processes wallet questions locally by default.
-- Cloud AI is opt-in for the browser session. When enabled, Lumexa sends a minimized snapshot without the wallet address or full transaction hashes.
+- Assistant prompts use the configured server-side AI provider. Lumexa sends a minimized snapshot without the connected wallet address or full transaction hashes.
+- Model tool calls are validated before they can open a populated Send, Swap, Bridge, or network screen. The connected wallet still owns every signature.
+- Provider failures are shown honestly; Lumexa does not silently present a rule-based response as real AI.
 - AI provider keys remain server-side.
 - Circle App Kit runs through its permissionless client path; no Circle API key is exposed or proxied through the browser.
 - Public API routes validate input, apply bounded work, and use best-effort per-instance rate limits.
@@ -71,13 +72,14 @@ NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
 NEXT_PUBLIC_SITE_URL=https://your-domain.example
 ```
 
-Testnet Arc defaults are included. Cloud AI is optional:
+Testnet Arc defaults are included. Configure one server-side AI provider for Lumexa Agent:
 
 ```bash
 OPENAI_API_KEY=
 OPENAI_MODEL=
 AI_GATEWAY_API_KEY=
 AI_GATEWAY_MODEL=
+AI_GATEWAY_FALLBACK_MODELS=openai/gpt-5.6-sol
 ```
 
 Do not place private keys, seed phrases, or server API keys in any `NEXT_PUBLIC_` variable.

@@ -12,27 +12,28 @@ export default function PrivacyPage() {
         </p>
       </section>
       <section>
-        <h2>Local-first wallet assistance</h2>
+        <h2>Model-backed wallet assistance</h2>
         <p>
-          Wallet summaries and common explanations run locally in your browser by default. They do
-          not require sending your wallet context to an external AI provider.
+          When you submit an assistant request, Lumexa sends your question and a minimized wallet
+          snapshot to the disclosed AI provider. The connected wallet address, full transaction
+          hashes, and signing data are excluded from that model context. An address you explicitly
+          type into a command may be sent because it is required to prepare that action.
         </p>
       </section>
       <section>
-        <h2>Optional cloud AI</h2>
+        <h2>Wallet actions</h2>
         <p>
-          Cloud AI is disabled until you explicitly enable it. If enabled, Lumexa sends your
-          question and a minimized wallet summary to the disclosed provider. Full wallet addresses,
-          full transaction hashes, and signing data are excluded. You can disable cloud AI at any
-          time.
+          The model may select a Send, Swap, Bridge, navigation, repeat, or network-switch tool.
+          Lumexa validates every tool result before opening a populated review screen. The model
+          cannot access your keys, approve a wallet prompt, or broadcast a transaction by itself.
         </p>
       </section>
       <section>
         <h2>Storage and transactions</h2>
         <p>
-          Theme, consent, and locally prepared activity may be stored in your browser. Blockchain
-          transactions are public and permanent after you approve and submit them through your
-          wallet. Lumexa does not store AI conversations onchain.
+          Theme and locally prepared activity may be stored in your browser. Blockchain transactions
+          are public and permanent after you approve and submit them through your wallet. Lumexa
+          does not store AI conversations onchain.
         </p>
       </section>
       <section>

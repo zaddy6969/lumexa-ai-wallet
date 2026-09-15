@@ -1,5 +1,4 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { generateLocalAssistantResponse } from "../lib/wallet-copilot";
 import { FeatureIcon } from "./wallet-sidebar";
 
 const STARTER_PROMPTS = [
@@ -14,9 +13,9 @@ const STARTER_PROMPTS = [
     icon: "activity"
   },
   {
-    label: "Check activity signals",
-    prompt: "Review the recent activity signals I can see. Do not give me a risk score.",
-    icon: "ai"
+    label: "Prepare a transfer",
+    prompt: "Help me prepare a USDC transfer.",
+    icon: "send"
   },
   {
     label: "Explain Arc gas",
@@ -32,6 +31,45 @@ const QUICK_VIEWS = [
   { view: "activity", label: "Activity", icon: "activity" }
 ];
 
+const COPILOT_CAPABILITIES = [
+  {
+    title: "Analyze",
+    detail: "Balances, activity and network state",
+    icon: "portfolio"
+  },
+  {
+    title: "Explain",
+    detail: "Transactions, approvals and gas",
+    icon: "activity"
+  },
+  {
+    title: "Prepare",
+    detail: "Review-only sends, swaps and bridges",
+    icon: "send"
+  }
+];
+
+const THINKING_STAGES = [
+  {
+    title: "Understanding your command",
+    detail: "Interpreting what you want Lumexa to analyze or do."
+  },
+  {
+    title: "Reasoning over wallet data",
+    detail: "Checking balances, network state and recent activity."
+  },
+  {
+    title: "Selecting wallet tools",
+    detail: "Matching the request to a safe, validated wallet action."
+  },
+  {
+    title: "Preparing the result",
+    detail: "Verifying details before Lumexa answers or opens the action."
+  }
+];
+
+const MIN_ANALYSIS_MS = 1400;
+
 function shortValue(value, start = 6, end = 4) {
   const text = String(value || "");
   if (!text) return "—";
@@ -43,6 +81,44 @@ function providerName(provider) {
   if (provider === "openai") return "OpenAI";
   if (provider === "vercel-ai-gateway") return "Vercel AI Gateway";
   return "configured cloud provider";
+}
+
+function modelName(model, provider) {
+  const value = String(model || "").toLowerCase();
+  if (value.includes("gpt-6-astra")) return "GPT-6 Astra";
+  if (value.includes("gpt-5.6-sol")) return "GPT-5.6 Sol";
+  const shortModel = String(model || "")
+    .split("/")
+    .pop();
+  return shortModel || providerName(provider);
+}
+
+function networkDisplayName(value) {
+  const key = String(value || "").toLowerCase();
+  const labels = {
+    arc: "Arc",
+    "ethereum-sepolia": "Ethereum Sepolia",
+    "ethereum-mainnet": "Ethereum",
+    "base-sepolia": "Base Sepolia",
+    "base-mainnet": "Base"
+  };
+  return labels[key] || value || "";
+}
+
+function waitForVisibleAnalysis(startedAt, signal) {
+  const remaining = Math.max(0, MIN_ANALYSIS_MS - (Date.now() - startedAt));
+  if (!remaining || signal?.aborted) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    let timeoutId;
+    const finish = () => {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+    timeoutId = setTimeout(finish, remaining);
+    signal?.addEventListener("abort", finish, { once: true });
+  });
 }
 
 function Message({ role, content }) {
@@ -95,7 +171,7 @@ function actionDetails(action) {
     return {
       icon: "bridge",
       title: `Bridge ${args.amount || ""} USDC`.trim(),
-      meta: `${args.sourceNetwork || "Source"} → ${args.destinationNetwork || "Destination"}`,
+      meta: `${networkDisplayName(args.sourceNetwork) || "Source"} → ${networkDisplayName(args.destinationNetwork) || "Destination"}`,
       cta: "Review bridge"
     };
   }
@@ -103,7 +179,7 @@ function actionDetails(action) {
     return {
       icon: "bridge",
       title: "Switch network",
-      meta: args.network || "Select network",
+      meta: networkDisplayName(args.network) || "Select network",
       cta: "Review"
     };
   }
@@ -144,18 +220,12 @@ export default function WalletAssistant({
   const [messages, setMessages] = useState([]);
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
+  const [thinkingStage, setThinkingStage] = useState(0);
   const [error, setError] = useState("");
   const [actions, setActions] = useState([]);
   const [cloudAvailable, setCloudAvailable] = useState(false);
-  const [cloudEnabled, setCloudEnabled] = useState(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return window.sessionStorage.getItem("lumexa-cloud-ai") === "enabled";
-    } catch {
-      return false;
-    }
-  });
   const [provider, setProvider] = useState(null);
+  const [model, setModel] = useState("");
   const [providerChecked, setProviderChecked] = useState(false);
   const externalPromptRef = useRef("");
   const requestRef = useRef(null);
@@ -167,6 +237,14 @@ export default function WalletAssistant({
   useEffect(() => () => requestRef.current?.abort(), []);
 
   useEffect(() => {
+    if (!loading) return undefined;
+    const intervalId = setInterval(() => {
+      setThinkingStage((current) => Math.min(current + 1, THINKING_STAGES.length - 1));
+    }, 520);
+    return () => clearInterval(intervalId);
+  }, [loading]);
+
+  useEffect(() => {
     let active = true;
     fetch("/api/ai", { cache: "no-store" })
       .then((response) => response.json())
@@ -174,12 +252,14 @@ export default function WalletAssistant({
         if (!active) return;
         setCloudAvailable(Boolean(payload?.cloudAvailable));
         setProvider(payload?.provider || null);
+        setModel(payload?.model || "");
         setProviderChecked(true);
       })
       .catch(() => {
         if (!active) return;
         setCloudAvailable(false);
         setProvider(null);
+        setModel("");
         setProviderChecked(true);
       });
     return () => {
@@ -224,7 +304,7 @@ export default function WalletAssistant({
     };
   }, [activityItems, activityStatus, walletSnapshot]);
 
-  const cloudContext = useMemo(
+  const agentContext = useMemo(
     () => ({
       wallet: {
         connected: context.wallet.connected,
@@ -244,7 +324,21 @@ export default function WalletAssistant({
           timeLabel: item.timeLabel,
           txHashShort: item.txHashShort,
           status: item.status,
-          summary: item.summary
+          summary: item.summary,
+          counterparty: item.counterparty,
+          recipient: item.recipient,
+          receiver: item.receiver,
+          metadata:
+            item.metadata && typeof item.metadata === "object"
+              ? {
+                  operation: item.metadata.operation,
+                  tokenIn: item.metadata.tokenIn,
+                  tokenOut: item.metadata.tokenOut,
+                  sourceNetwork: item.metadata.sourceNetwork,
+                  destinationNetwork: item.metadata.destinationNetwork,
+                  slippageBps: item.metadata.slippageBps
+                }
+              : undefined
         }))
       }
     }),
@@ -254,15 +348,7 @@ export default function WalletAssistant({
   const latestActivity = context.activity.items[0] || null;
   const activityCount = context.activity.items.length;
   const assetCount = context.portfolio.assets.length;
-  const useCloud = cloudAvailable && cloudEnabled;
-
-  const setCloudConsent = (enabled) => {
-    setCloudEnabled(enabled);
-    try {
-      if (enabled) window.sessionStorage.setItem("lumexa-cloud-ai", "enabled");
-      else window.sessionStorage.removeItem("lumexa-cloud-ai");
-    } catch {}
-  };
+  const useCloud = cloudAvailable;
 
   const askAssistant = async (nextQuestion) => {
     const trimmed = String(nextQuestion || "")
@@ -270,56 +356,67 @@ export default function WalletAssistant({
       .slice(0, 800);
     if (!trimmed || loading) return;
 
+    const analysisStartedAt = Date.now();
+    const historyMessages = messages.slice(-8);
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     const nextMessages = [...messages.slice(-16), { role: "user", content: trimmed }];
     setMessages(nextMessages);
     setQuestion("");
+    setThinkingStage(0);
     setLoading(true);
     setError("");
     setActions([]);
     requestRef.current?.abort();
-    requestRef.current = new AbortController();
+    const controller = new AbortController();
+    requestRef.current = controller;
 
     try {
-      let result;
-      if (useCloud) {
-        const response = await fetch("/api/ai", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: requestRef.current.signal,
-          body: JSON.stringify({
-            question: trimmed,
-            messages: nextMessages.slice(-8),
-            context: cloudContext
-          })
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || !payload?.answer) {
-          throw new Error(payload?.error || "Cloud response was unavailable.");
-        }
-        result = payload;
-      } else {
-        result = generateLocalAssistantResponse({ question: trimmed, context });
+      const response = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          question: trimmed,
+          messages: historyMessages,
+          context: agentContext
+        })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result?.answer || result?.mode !== "ai-agent") {
+        throw new Error(result?.error || "Lumexa AI did not return a model response.");
       }
 
-      if (requestId !== requestIdRef.current) return;
+      await waitForVisibleAnalysis(analysisStartedAt, controller.signal);
+      if (requestId !== requestIdRef.current || controller.signal.aborted) return;
+      const preparedActions = Array.isArray(result.actions) ? result.actions : [];
       setMessages((current) => [
         ...current.slice(-17),
         { role: "assistant", content: result.answer }
       ]);
-      setActions(Array.isArray(result.actions) ? result.actions : []);
+      setActions(preparedActions);
+      if (result.model) setModel(result.model);
+
+      // Model-selected tools are safe handoffs: transaction tools only open a populated
+      // review screen, while the connected wallet still owns the final signature.
+      if (preparedActions[0]) onWalletAction?.(preparedActions[0]);
     } catch (nextError) {
       if (requestId !== requestIdRef.current || nextError?.name === "AbortError") return;
-      const fallback = generateLocalAssistantResponse({ question: trimmed, context });
+      await waitForVisibleAnalysis(analysisStartedAt, controller.signal);
+      if (requestId !== requestIdRef.current || controller.signal.aborted) return;
       setMessages((current) => [
         ...current.slice(-17),
-        { role: "assistant", content: fallback.answer }
+        {
+          role: "assistant",
+          content:
+            "I couldn’t complete that request with the real AI model. Please try again in a moment."
+        }
       ]);
       setActions([]);
-      setError("Cloud AI was unavailable, so Lumexa answered locally instead.");
+      setError(nextError?.message || "Lumexa AI is temporarily unavailable.");
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
+      if (requestRef.current === controller) requestRef.current = null;
     }
   };
 
@@ -343,6 +440,7 @@ export default function WalletAssistant({
   const stopAssistant = () => {
     requestIdRef.current += 1;
     requestRef.current?.abort();
+    requestRef.current = null;
     setLoading(false);
   };
 
@@ -365,7 +463,12 @@ export default function WalletAssistant({
   };
 
   const showStarter = messages.length === 0 && !loading;
-  const providerLabel = useCloud ? providerName(provider) : "On-device rules";
+  const providerLabel = useCloud
+    ? modelName(model, provider)
+    : providerChecked
+      ? "AI unavailable"
+      : "Connecting AI";
+  const activeThinkingStage = THINKING_STAGES[thinkingStage] || THINKING_STAGES[0];
 
   return (
     <section className="lumexa-ai-workspace">
@@ -376,11 +479,11 @@ export default function WalletAssistant({
           </span>
           <div>
             <strong>Lumexa Copilot</strong>
-            <small>Local-first wallet help</small>
+            <small>Model-backed wallet agent</small>
           </div>
-          <span className="lumexa-ai-live is-ready">
+          <span className={`lumexa-ai-live${useCloud ? " is-ready" : ""}`}>
             <i />
-            {useCloud ? "Cloud on" : "Local"}
+            {useCloud ? "AI online" : providerChecked ? "AI offline" : "Connecting"}
           </span>
         </div>
 
@@ -453,6 +556,26 @@ export default function WalletAssistant({
           )}
         </div>
 
+        <div className="lumexa-ai-rail-section is-capabilities">
+          <div className="lumexa-ai-rail-title">
+            <strong>Lumexa can</strong>
+            <span>Wallet-aware</span>
+          </div>
+          <div className="lumexa-ai-capability-list">
+            {COPILOT_CAPABILITIES.map((capability) => (
+              <article key={capability.title}>
+                <span>
+                  <FeatureIcon name={capability.icon} />
+                </span>
+                <div>
+                  <strong>{capability.title}</strong>
+                  <small>{capability.detail}</small>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+
         <div className="lumexa-ai-privacy-note">
           <span aria-hidden="true">✓</span>
           <div>
@@ -470,11 +593,11 @@ export default function WalletAssistant({
             </span>
             <div>
               <strong>Ask Lumexa</strong>
-              <small>{loading ? "Working on your request…" : providerLabel}</small>
+              <small>{loading ? activeThinkingStage.title : providerLabel}</small>
             </div>
           </div>
           <div className="lumexa-ai-chat-tools">
-            <span className="lumexa-ai-provider-pill is-ready">
+            <span className={`lumexa-ai-provider-pill${useCloud ? " is-ready" : ""}`}>
               <i />
               {providerLabel}
             </span>
@@ -487,33 +610,34 @@ export default function WalletAssistant({
         </header>
 
         <div className="lumexa-ai-consent-card">
-          <div>
+          <div className="lumexa-ai-consent-copy">
+            <small className="lumexa-ai-mode-label">
+              {useCloud ? "Real AI agent" : "AI connection"}
+            </small>
             <strong>
               {useCloud
-                ? "Cloud AI is enabled for this session"
-                : "Wallet analysis stays in this browser"}
+                ? `${modelName(model, provider)} reasoning is active`
+                : providerChecked
+                  ? "Lumexa AI is temporarily unavailable"
+                  : "Connecting Lumexa to its reasoning model…"}
             </strong>
             <span>
               {useCloud
-                ? `Questions and a minimized snapshot—without your address or full transaction hashes—go to ${providerName(provider)}.`
-                : cloudAvailable
-                  ? "Turn on cloud AI only when you want broader answers or prepared actions."
-                  : providerChecked
-                    ? "No cloud provider is configured. Local wallet explanations remain available."
-                    : "Checking optional cloud availability…"}
+                ? `Lumexa reasons over a minimized wallet snapshot, chooses validated tools, and opens requested actions. Your connected address and full transaction hashes are excluded from the model context.`
+                : providerChecked
+                  ? "No rule-based answer will be shown as AI. Try again after the model connection is restored."
+                  : "Checking the secure model connection and wallet tools."}
             </span>
+            <div className="lumexa-ai-mode-badges" aria-label="Assistant safeguards">
+              <span>Model reasoning</span>
+              <span>Wallet tools</span>
+              <span>You approve</span>
+            </div>
           </div>
-          {cloudAvailable ? (
-            <label className="lumexa-ai-consent-toggle">
-              <input
-                type="checkbox"
-                checked={cloudEnabled}
-                onChange={(event) => setCloudConsent(event.target.checked)}
-              />
-              <span aria-hidden="true" />
-              <b>{cloudEnabled ? "Cloud on" : "Cloud off"}</b>
-            </label>
-          ) : null}
+          <span className={`lumexa-ai-provider-pill${useCloud ? " is-ready" : ""}`}>
+            <i />
+            {useCloud ? "Real AI online" : "Checking AI"}
+          </span>
         </div>
 
         <div className="lumexa-ai-thread" ref={threadRef} aria-live="polite">
@@ -522,10 +646,10 @@ export default function WalletAssistant({
               <span className="lumexa-ai-starter-mark" aria-hidden="true">
                 ✦
               </span>
-              <h3>Understand your wallet</h3>
+              <h3>Ask. Analyze. Act.</h3>
               <p>
-                Start with local explanations. Enable cloud AI only when you choose to share a
-                minimized snapshot.
+                Speak naturally. Lumexa uses real model reasoning to analyze wallet data and prepare
+                sends, swaps, bridges, and network actions for your approval.
               </p>
               <div className="lumexa-ai-starter-grid">
                 {STARTER_PROMPTS.map((item) => (
@@ -549,17 +673,40 @@ export default function WalletAssistant({
             />
           ))}
           {loading ? (
-            <article className="lumexa-ai-message is-assistant is-thinking">
-              <div className="lumexa-ai-avatar">✦</div>
+            <article
+              className="lumexa-ai-message is-assistant is-thinking"
+              aria-label="Lumexa is analyzing your request"
+            >
+              <div className="lumexa-ai-avatar" aria-hidden="true">
+                ✦
+              </div>
               <div className="lumexa-ai-message-body">
                 <div className="lumexa-ai-message-meta">
                   <strong>Lumexa</strong>
-                  <span>Analyzing</span>
+                  <span>Analyzing your wallet</span>
                 </div>
-                <div className="lumexa-ai-thinking">
-                  <i />
-                  <i />
-                  <i />
+                <div className="lumexa-ai-reasoning-card">
+                  <div className="lumexa-ai-reasoning-main">
+                    <span className="lumexa-ai-reasoning-orb" aria-hidden="true">
+                      <i />✦
+                    </span>
+                    <div className="lumexa-ai-reasoning-copy">
+                      <strong>{activeThinkingStage.title}</strong>
+                      <span>{activeThinkingStage.detail}</span>
+                    </div>
+                  </div>
+                  <div className="lumexa-ai-reasoning-progress" aria-hidden="true">
+                    {THINKING_STAGES.map((stage, index) => (
+                      <i
+                        key={stage.title}
+                        className={index <= thinkingStage ? "is-active" : undefined}
+                      />
+                    ))}
+                  </div>
+                  <small>
+                    <span aria-hidden="true">✓</span>
+                    Model reasoning with validated tools. Your wallet signs every transaction.
+                  </small>
                 </div>
               </div>
             </article>
@@ -590,7 +737,7 @@ export default function WalletAssistant({
           >
             <div className="lumexa-ai-composer-context">
               <span>✦</span>
-              <strong>{useCloud ? "Minimized context" : "Local context"}</strong>
+              <strong>{useCloud ? "AI wallet context" : "AI connecting"}</strong>
               <small>{walletSnapshot?.activeChainName || "Connected wallet"}</small>
             </div>
             <textarea
@@ -604,7 +751,7 @@ export default function WalletAssistant({
                   if (question.trim() && !loading) void askAssistant(question);
                 }
               }}
-              placeholder="Ask about balances, activity, gas, or a wallet action…"
+              placeholder="Ask Lumexa anything about this wallet…"
               rows={1}
               aria-label="Ask Lumexa"
             />
@@ -636,7 +783,7 @@ export default function WalletAssistant({
 
         {error ? (
           <div className="lumexa-ai-error" role="status">
-            <strong>Using local mode</strong>
+            <strong>Real AI request failed</strong>
             <span>{error}</span>
             <button type="button" onClick={() => setError("")}>
               Dismiss
