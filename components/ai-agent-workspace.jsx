@@ -7,25 +7,33 @@ export default function AiAgentWorkspace({
   initialPrompt,
   onWalletAction
 }) {
+  // Real model reasoning is the default whenever the server reports a cloud provider.
+  // WalletAssistant still sends only its minimized wallet snapshot and never exposes keys.
+  if (typeof window !== "undefined") {
+    try {
+      window.sessionStorage.setItem("lumexa-cloud-ai", "enabled");
+    } catch {}
+  }
+
   return (
     <section className="lumexa-agent-page">
       <header className="lumexa-agent-page-head">
         <div>
           <span className="lumexa-agent-eyebrow">Lumexa Intelligence</span>
-          <h1>Wallet Copilot</h1>
+          <h1>AI Wallet Agent</h1>
           <p>
-            One focused assistant for wallet analysis, transaction explanations, Arc network checks,
-            and preparing actions for your approval.
+            Real AI reasoning for wallet analysis, transaction explanations, Arc network checks,
+            and intelligent wallet actions with your wallet controlling the final signature.
           </p>
         </div>
         <div className="lumexa-agent-trust-strip">
           <span>
             <i />
-            Self-custodial
+            Real AI
           </span>
           <span>
             <i />
-            No signing access
+            Self-custodial
           </span>
           <span>
             <i />
