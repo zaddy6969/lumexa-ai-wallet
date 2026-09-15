@@ -17,10 +17,7 @@ function PanelLoading() {
   return (
     <section className="panel panel-loading" role="status" aria-live="polite">
       <span className="loading-spinner" aria-hidden="true" />
-      <div>
-        <strong>Loading wallet</strong>
-        <p>Syncing the latest data…</p>
-      </div>
+      <div><strong>Loading wallet</strong><p>Syncing the latest data…</p></div>
     </section>
   );
 }
@@ -29,24 +26,12 @@ const WalletDashboard = dynamic(() => import("./wallet-dashboard"), { loading: P
 const BridgePanel = dynamic(() => import("./bridge-panel"), { loading: PanelLoading });
 const SendPanel = dynamic(() => import("./send-panel"), { loading: PanelLoading });
 const SwapPanel = dynamic(() => import("./swap-panel"), { loading: PanelLoading });
-const TransactionActivity = dynamic(() => import("./transaction-activity"), {
-  loading: PanelLoading
-});
-const AiAgentWorkspace = dynamic(() => import("./ai-agent-workspace"), {
-  ssr: false,
-  loading: PanelLoading
-});
+const TransactionActivity = dynamic(() => import("./transaction-activity"), { loading: PanelLoading });
+const AiAgentWorkspace = dynamic(() => import("./ai-agent-workspace"), { ssr: false, loading: PanelLoading });
 const ReceiveModal = dynamic(() => import("./wallet/ReceiveModal"), { ssr: false });
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://lumexa-aiwallet.vercel.app";
-const VIEW_ROUTES = {
-  dashboard: "/",
-  send: "/send",
-  swap: "/swap",
-  bridge: "/bridge",
-  activity: "/activity",
-  agent: "/assistant"
-};
+const VIEW_ROUTES = { dashboard: "/", send: "/send", swap: "/swap", bridge: "/bridge", activity: "/activity", agent: "/assistant" };
 const ROUTE_VIEWS = new Set(Object.keys(VIEW_ROUTES));
 const PAGE_META = {
   dashboard: ["Lumexa AI Wallet", "A self-custodial USDC wallet built for Arc."],
@@ -78,170 +63,84 @@ function copilotNetworkChainId(value) {
 
 function ConnectedWalletExperience({ initialView, initialReceiveOpen, walletSnapshot }) {
   const router = useRouter();
-  const {
-    mergedActivity,
-    liveActivityStatus,
-    liveActivityError,
-    saveLocalActivity,
-    refreshActivity,
-    updateLocalActivityByHash
-  } = useWalletAppState(walletSnapshot);
+  const { mergedActivity, liveActivityStatus, liveActivityError, saveLocalActivity, refreshActivity, updateLocalActivityByHash } = useWalletAppState(walletSnapshot);
   const { connector } = useAccount();
   const { switchChainAsync } = useSwitchChain();
   const { preparedAction, prepareAction, clearPreparedAction } = usePreparedWalletAction();
-  const [copilotAction] = useState(() => preparedAction);
   const [receiveOpen, setReceiveOpen] = useState(Boolean(initialReceiveOpen));
   const [assistantPrompt, setAssistantPrompt] = useState(null);
-
-  useEffect(() => {
-    if (copilotAction?.id) clearPreparedAction(copilotAction.id);
-  }, [clearPreparedAction, copilotAction]);
 
   useEffect(() => {
     const legacyView = String(window.location.hash || "").replace(/^#/, "");
     if (!legacyView) return;
     const normalized = normalizeWalletView(legacyView);
-    void router
-      .replace(normalized === "receive" ? "/receive" : VIEW_ROUTES[normalized])
-      .then(() => {
-        if (normalized === "receive") setReceiveOpen(true);
-      });
+    void router.replace(normalized === "receive" ? "/receive" : VIEW_ROUTES[normalized]).then(() => {
+      if (normalized === "receive") setReceiveOpen(true);
+    });
   }, [router]);
 
-  const selectView = useCallback(
-    (requestedView) => {
-      const view = normalizeWalletView(requestedView);
-      clearPreparedAction();
-      if (view === "receive") {
-        setReceiveOpen(true);
-        return;
-      }
-      void router.push(VIEW_ROUTES[view]);
-    },
-    [clearPreparedAction, router]
-  );
+  const selectView = useCallback((requestedView) => {
+    const view = normalizeWalletView(requestedView);
+    clearPreparedAction();
+    if (view === "receive") { setReceiveOpen(true); return; }
+    void router.push(VIEW_ROUTES[view]);
+  }, [clearPreparedAction, router]);
 
-  const openPreparedView = useCallback(
-    (requestedView, action) => {
-      const view = normalizeWalletView(requestedView);
-      if (view === "receive") {
-        setReceiveOpen(true);
-        return;
-      }
-      prepareAction(action);
-      void router.push(VIEW_ROUTES[view]);
-    },
-    [prepareAction, router]
-  );
+  const openPreparedView = useCallback((requestedView, action) => {
+    const view = normalizeWalletView(requestedView);
+    if (view === "receive") { setReceiveOpen(true); return; }
+    // Keep the complete AI action in the provider while Next changes routes. Each route
+    // remounts ConnectedWalletExperience, so copying it into one component's local state
+    // loses the amount/token/recipient before the destination panel can consume it.
+    prepareAction(action);
+    void router.push(VIEW_ROUTES[view]);
+  }, [prepareAction, router]);
 
-  const handleCopilotAction = useCallback(
-    async (action) => {
-      if (!action?.tool) return;
-      if (action.tool === "prepare_send") return openPreparedView("send", action);
-      if (action.tool === "prepare_swap") return openPreparedView("swap", action);
-      if (action.tool === "prepare_bridge") return openPreparedView("bridge", action);
-      if (action.tool === "open_wallet_view") return selectView(action?.args?.view);
-
-      if (action.tool === "switch_network") {
-        const chainId = copilotNetworkChainId(action?.args?.network);
-        const chain = MULTICHAIN_WALLET_CHAINS.find((item) => item.id === Number(chainId));
-        if (!chain || !connector) return;
-        try {
-          await switchWalletNetwork({ connector, chain, switchChainAsync });
-        } catch {
-          setAssistantPrompt({
-            id: `${Date.now()}-switch-error`,
-            text: "My wallet did not complete the network switch. What should I check?"
-          });
-          void router.push(VIEW_ROUTES.agent);
-        }
+  const handleCopilotAction = useCallback(async (action) => {
+    if (!action?.tool) return;
+    if (action.tool === "prepare_send") return openPreparedView("send", action);
+    if (action.tool === "prepare_swap") return openPreparedView("swap", action);
+    if (action.tool === "prepare_bridge") return openPreparedView("bridge", action);
+    if (action.tool === "open_wallet_view") return selectView(action?.args?.view);
+    if (action.tool === "switch_network") {
+      const chainId = copilotNetworkChainId(action?.args?.network);
+      const chain = MULTICHAIN_WALLET_CHAINS.find((item) => item.id === Number(chainId));
+      if (!chain || !connector) return;
+      try { await switchWalletNetwork({ connector, chain, switchChainAsync }); }
+      catch {
+        setAssistantPrompt({ id: `${Date.now()}-switch-error`, text: "My wallet did not complete the network switch. What should I check?" });
+        void router.push(VIEW_ROUTES.agent);
       }
-    },
-    [connector, openPreparedView, router, selectView, switchChainAsync]
-  );
+    }
+  }, [connector, openPreparedView, router, selectView, switchChainAsync]);
 
   const activeView = normalizeWalletView(initialView);
+  const actionForView =
+    activeView === "swap" && preparedAction?.tool === "prepare_swap" ? preparedAction :
+    activeView === "bridge" && preparedAction?.tool === "prepare_bridge" ? preparedAction :
+    activeView === "send" && preparedAction?.tool === "prepare_send" ? preparedAction : null;
 
   return (
-    <AppShell
-      walletSnapshot={walletSnapshot}
-      onOpenAssistant={() => void router.push(VIEW_ROUTES.agent)}
-    >
+    <AppShell walletSnapshot={walletSnapshot} onOpenAssistant={() => void router.push(VIEW_ROUTES.agent)}>
       <div className="wallet-workspace">
-        <WalletSidebar
-          activeView={activeView}
-          onSelect={selectView}
-          onReceive={() => setReceiveOpen(true)}
-        />
-
+        <WalletSidebar activeView={activeView} onSelect={selectView} onReceive={() => setReceiveOpen(true)} />
         <div className="wallet-main" id="wallet-content">
           {activeView === "dashboard" ? (
-            <WalletDashboard
-              walletSnapshot={walletSnapshot}
-              activityItems={mergedActivity}
-              onSelectView={selectView}
-              onReceive={() => setReceiveOpen(true)}
-            />
+            <WalletDashboard walletSnapshot={walletSnapshot} activityItems={mergedActivity} onSelectView={selectView} onReceive={() => setReceiveOpen(true)} />
           ) : activeView === "agent" ? (
-            <AiAgentWorkspace
-              walletSnapshot={walletSnapshot}
-              activityItems={mergedActivity}
-              activityStatus={liveActivityStatus}
-              initialPrompt={assistantPrompt}
-              onWalletAction={handleCopilotAction}
-            />
+            <AiAgentWorkspace walletSnapshot={walletSnapshot} activityItems={mergedActivity} activityStatus={liveActivityStatus} initialPrompt={assistantPrompt} onWalletAction={handleCopilotAction} />
           ) : activeView === "activity" ? (
-            <TransactionActivity
-              walletSnapshot={walletSnapshot}
-              items={mergedActivity}
-              liveStatus={liveActivityStatus}
-              liveError={liveActivityError}
-              onRefresh={refreshActivity}
-            />
+            <TransactionActivity walletSnapshot={walletSnapshot} items={mergedActivity} liveStatus={liveActivityStatus} liveError={liveActivityError} onRefresh={refreshActivity} />
           ) : activeView === "swap" ? (
-            <>
-              <TransactionNotice mode="swap" walletSnapshot={walletSnapshot} />
-              <SwapPanel
-                key={copilotAction?.tool === "prepare_swap" ? copilotAction.id : "swap"}
-                walletSnapshot={walletSnapshot}
-                onActivitySaved={saveLocalActivity}
-                copilotAction={copilotAction}
-              />
-            </>
+            <><TransactionNotice mode="swap" walletSnapshot={walletSnapshot} /><SwapPanel key={actionForView?.id || "swap"} walletSnapshot={walletSnapshot} onActivitySaved={saveLocalActivity} copilotAction={actionForView} /></>
           ) : activeView === "bridge" ? (
-            <>
-              <TransactionNotice mode="bridge" walletSnapshot={walletSnapshot} />
-              <BridgePanel
-                key={copilotAction?.tool === "prepare_bridge" ? copilotAction.id : "bridge"}
-                walletSnapshot={walletSnapshot}
-                onActivitySaved={saveLocalActivity}
-                copilotAction={copilotAction}
-              />
-            </>
+            <><TransactionNotice mode="bridge" walletSnapshot={walletSnapshot} /><BridgePanel key={actionForView?.id || "bridge"} walletSnapshot={walletSnapshot} onActivitySaved={saveLocalActivity} copilotAction={actionForView} /></>
           ) : (
-            <>
-              <TransactionNotice mode="send" walletSnapshot={walletSnapshot} />
-              <SendPanel
-                key={copilotAction?.tool === "prepare_send" ? copilotAction.id : "send"}
-                walletSnapshot={walletSnapshot}
-                onActivitySaved={saveLocalActivity}
-                onActivityUpdated={updateLocalActivityByHash}
-                copilotAction={copilotAction}
-              />
-            </>
+            <><TransactionNotice mode="send" walletSnapshot={walletSnapshot} /><SendPanel key={actionForView?.id || "send"} walletSnapshot={walletSnapshot} onActivitySaved={saveLocalActivity} onActivityUpdated={updateLocalActivityByHash} copilotAction={actionForView} /></>
           )}
         </div>
       </div>
-
-      <ReceiveModal
-        open={receiveOpen}
-        onClose={() => {
-          setReceiveOpen(false);
-          if (router.pathname === "/receive") void router.replace("/");
-        }}
-        address={walletSnapshot.address}
-        networkLabel={walletSnapshot?.activeChainName || arcTestnet.name}
-      />
+      <ReceiveModal open={receiveOpen} onClose={() => { setReceiveOpen(false); if (router.pathname === "/receive") void router.replace("/"); }} address={walletSnapshot.address} networkLabel={walletSnapshot?.activeChainName || arcTestnet.name} />
     </AppShell>
   );
 }
@@ -251,30 +150,7 @@ export default function WalletRoute({ initialView = "dashboard", initialReceiveO
   const view = normalizeWalletView(initialView);
   const [title, description] = PAGE_META[view] || PAGE_META.dashboard;
   const canonicalPath = view === "dashboard" ? "" : VIEW_ROUTES[view];
-
   return (
-    <>
-      <Head>
-        <title>{title}</title>
-        <meta name="description" content={description} />
-        <meta name="theme-color" content="#061326" />
-        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-        <meta property="og:title" content={title} />
-        <meta property="og:description" content={description} />
-        <meta property="og:type" content="website" />
-        <meta property="og:url" content={`${SITE_URL}${canonicalPath}`} />
-        <meta name="twitter:card" content="summary" />
-        <link rel="canonical" href={`${SITE_URL}${canonicalPath}`} />
-      </Head>
-      {walletSnapshot.isSignedIn ? (
-        <ConnectedWalletExperience
-          initialView={view}
-          initialReceiveOpen={initialReceiveOpen}
-          walletSnapshot={walletSnapshot}
-        />
-      ) : (
-        <WalletLoginScreen />
-      )}
-    </>
+    <><Head><title>{title}</title><meta name="description" content={description} /><meta name="theme-color" content="#061326" /><link rel="canonical" href={`${SITE_URL}${canonicalPath}`} /></Head>{walletSnapshot?.isSignedIn ? <ConnectedWalletExperience initialView={view} initialReceiveOpen={initialReceiveOpen} walletSnapshot={walletSnapshot} /> : <WalletLoginScreen />}</>
   );
 }
