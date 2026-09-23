@@ -9,6 +9,7 @@ import {
   assertRecipient,
   assertReview,
   assertWalletIdentity,
+  guardedWalletProvider,
   maxSendUnits,
   parseTransferAmount,
   USDC_SCALE
@@ -83,7 +84,9 @@ async function getTransferContext(connector, sender, recipient, amount) {
   await assertWalletIdentity(injectedProvider, sender, arcTestnet.id);
   assertRecipient(recipient);
   parseTransferAmount(amount);
-  const provider = new BrowserProvider(injectedProvider);
+  const provider = new BrowserProvider(
+    guardedWalletProvider(injectedProvider, sender, [arcTestnet.id])
+  );
   const signer = await provider.getSigner(sender);
   const contract = new Contract(ARC_USDC_ERC20_ADDRESS, USDC_ABI, signer);
   const decimals = Number(await contract.decimals());
