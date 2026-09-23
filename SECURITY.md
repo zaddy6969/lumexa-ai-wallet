@@ -1,6 +1,6 @@
 # Security policy
 
-Lumexa is a self-custodial testnet wallet. It never requests a seed phrase or private key, and every transaction must be approved by the connected wallet.
+Lumexa is a self-custodial wallet interface for Arc Mainnet. It never requests a seed phrase or private key, and every transaction must be approved by the connected wallet.
 
 ## Reporting a vulnerability
 
@@ -14,10 +14,10 @@ Security fixes target the current `main` branch and the production deployment li
 
 - Production installs are locked with `pnpm-lock.yaml` and supply-chain policy checks.
 - Patched transitive versions are resolved explicitly in `pnpm-workspace.yaml`.
-- CI blocks critical production advisories and runs linting, strict TypeScript, unit tests, and a production build.
+- CI blocks critical production advisories and runs linting, TypeScript, unit tests, and a production build.
 - Breaking transitive overrides are rejected when runtime import checks show incompatibility.
 
-As of September 10, 2026, the npm advisory feed still reports four upstream entries without a compatible published fix:
+The September 23, 2026 production dependency audit reports zero critical advisories and four inherited transitive advisories (two high, one moderate, one low). These remain tracked rather than forcing incompatible major versions:
 
 - Two `image-size` parser denial-of-service advisories in Metro, installed beneath Porto by Wagmi. Lumexa does not run Metro or parse ICNS, JXL, or HEIF assets at runtime.
 - One `stream-json` filter complexity advisory beneath Circle's Solana JSON-RPC dependency. Jayson uses the stream/value verifier path, not the vulnerable filter helpers; forcing version 3 breaks its CommonJS API.

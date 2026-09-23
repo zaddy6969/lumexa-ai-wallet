@@ -6,6 +6,7 @@ export default function SiteFooter({ compact = false }) {
     <footer className={`site-footer ${compact ? "is-compact" : ""}`}>
       <span>© 2026 Lumexa</span>
       <nav aria-label="Legal and support">
+        <Link href="/network">Arc status</Link>
         <Link href="/privacy">Privacy</Link>
         <Link href="/terms">Terms</Link>
         <a

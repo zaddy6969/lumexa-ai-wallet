@@ -1,43 +1,51 @@
 # Lumexa AI Wallet
 
-Lumexa is a focused, self-custodial USDC wallet for Arc. It combines explicit transaction review, cross-network testnet balances, recent public activity, and a local-first wallet copilot.
+A self-custodial wallet interface for **Arc Mainnet**: USDC payments, payment requests, Circle App Kit swaps and CCTP bridges, with local wallet assistance that prepares actions for review.
 
-The current deployment is a testnet product. Test tokens are never presented as real dollar wealth.
+- **App:** https://lumexa-aiwallet.vercel.app
+- **Live network check:** https://lumexa-aiwallet.vercel.app/network
+- **Builder:** https://github.com/zaddy6969
+- **Microgrants submission notes:** [docs/MICROGRANTS.md](docs/MICROGRANTS.md)
 
-## Product scope
+Lumexa uses Arc's existing token and protocol contracts. It does not deploy a custody contract, hold keys, or sign on behalf of users. A web deployment and a successful blockchain transaction are different evidence; verify a small signed mainnet transaction before submitting the project.
 
-- `/` — wallet overview, assets, and cross-network balances
-- `/send` — review and send USDC on Arc
-- `/receive` — share an address or exact EIP-681 payment request
-- `/swap` — fetch a live Circle App Kit quote and approve in the wallet
-- `/bridge` — bridge USDC across configured Arc, Ethereum, and Base networks
-- `/activity` — bounded recent explorer history plus locally submitted actions
-- `/assistant` — local-first explanations with explicit cloud-AI consent
-- `/privacy` and `/terms` — product disclosures
+## Arc integration
+
+| Setting               | Mainnet value                                            |
+| --------------------- | -------------------------------------------------------- |
+| Chain ID              | `5042` (`0x13b2`)                                        |
+| RPC                   | `https://rpc.mainnet.arc.io`                             |
+| Explorer              | `https://explorer.arc.io`                                |
+| Gas asset             | USDC, native interface: 18 decimals                      |
+| USDC ERC-20 interface | `0x3600000000000000000000000000000000000000`, 6 decimals |
+| EURC                  | `0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1`, 6 decimals |
+| cirBTC                | `0x171A4217b86A807A64eB94757Db6849fb4bDbAA0`, 8 decimals |
+| Circle App Kit        | `1.15.2`, viem adapter `1.18.0`                          |
+| App Kit chains        | `Arc`, `Ethereum`, `Base`                                |
+
+Native and ERC-20 USDC are two interfaces to the **same balance**, not two assets. Send uses exact integer amounts, rejects zero recipients, and reserves a padded fee cap from that balance. The gas estimate respects Arc's minimum gas price of 20 gwei. It waits for a receipt rather than treating a transaction hash as confirmation.
+
+Swap reviews expire after 60 seconds. Execution preserves the reviewed minimum output, rechecks the actual wallet account and chain, and requires wallet approval. Quotes depend on live route availability and liquidity.
+
+Bridge uses Circle App Kit/CCTP with step-level status. Source approval or burn alone is not destination completion. Public transaction checkpoints are saved per wallet and environment in browser storage. A failed operation with a confirmed burn can resume destination delivery using App Kit's retry API. Keep the page open during bridging and save the transaction links; browser storage is not a durable recovery service.
+
+Recent activity falls back to a bounded RPC scan of Arc's USDC system transfer events, including native transfers. It is not a complete historical indexer. Reference fiat values are indicative; unavailable prices are not invented.
+
+## Product routes
+
+- `/` — wallet overview and supported-network balances
+- `/send`, `/receive` — USDC transfers and EIP-681 payment requests
+- `/swap`, `/bridge` — live Circle App Kit quotes and wallet-approved execution
+- `/activity` — recent public activity and locally submitted actions
+- `/assistant` — local wallet explanations and prepared actions
+- `/network` — public live chain ID, latest block freshness, and USDC decimals check
+- `/privacy`, `/terms` — product disclosures
 
 Legacy portfolio and unified-balance URLs redirect to the wallet overview.
 
-## Trust model
+## Run locally
 
-- Lumexa does not hold private keys or sign transactions.
-- Every state-changing action is reviewed and approved in the connected wallet.
-- The assistant processes wallet questions locally by default.
-- Cloud AI is opt-in for the browser session. When enabled, Lumexa sends a minimized snapshot without the wallet address or full transaction hashes.
-- AI provider keys remain server-side.
-- Circle App Kit runs through its permissionless client path; no Circle API key is exposed or proxied through the browser.
-- Public API routes validate input, apply bounded work, and use best-effort per-instance rate limits.
-
-This is not a security audit, financial advice, or a guarantee about third-party contracts or bridges.
-
-## Stack
-
-- Next.js Pages Router and React
-- RainbowKit, wagmi, viem, and ethers
-- Circle App Kit
-- TanStack Query
-- Optional OpenAI or Vercel AI Gateway provider
-
-## Local development
+Requires Node.js 22+ and pnpm 11.19.0.
 
 ```bash
 cp .env.example .env.local
@@ -45,51 +53,38 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Open `http://localhost:3000`.
+Open http://localhost:3000. Mainnet is the default. For isolated testnet development, set `NEXT_PUBLIC_ARC_NETWORK=testnet`; it uses chain `5042002`, Ethereum Sepolia, and Base Sepolia. Testnet history and assistant sessions do not migrate into mainnet.
 
-## Quality checks
+A Reown project ID is optional for WalletConnect; browser wallets and Safe do not require it. Keep all private keys, seed phrases, and server credentials out of `NEXT_PUBLIC_*` variables.
 
-```bash
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm audit:prod
-pnpm format:check
-pnpm build
-```
+## Privacy and trust
 
-`pnpm check` runs formatting, type checking, linting, unit tests, a production dependency gate, and a production build. The same checks run in GitHub Actions.
+- Every state-changing transaction requires review and a connected-wallet signature.
+- The assistant cannot sign. Its actions are validated again by the transaction panels.
+- Common wallet questions run in the browser. Cloud AI is off until explicitly enabled and requires a server-configured provider.
+- Cloud requests redact full addresses and transaction hashes from model input. Never paste secrets into chat.
+- App Kit uses its permissionless client path; no Circle secret key is shipped to the browser.
+- Public APIs validate inputs, bound work, enforce same-origin writes, and use best-effort per-instance rate limits.
+- This prototype is not independently audited. Dependency limitations are documented in [SECURITY.md](SECURITY.md).
 
-Security policy and current upstream dependency constraints are documented in `SECURITY.md`.
-
-## Environment
-
-Copy `.env.example` and configure at minimum:
+## Verify and deploy
 
 ```bash
-NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
-NEXT_PUBLIC_SITE_URL=https://your-domain.example
+pnpm check
 ```
 
-Testnet Arc defaults are included. Cloud AI is optional:
+The check runs formatting, TypeScript, ESLint, 21 tests in each of mainnet and testnet, the critical production dependency gate, and a production build. Tests cover precise amounts, gas reserves, stale reviews, account/network changes, AI action validation, privacy redaction, and bridge checkpoints. They do not sign real transactions.
 
-```bash
-OPENAI_API_KEY=
-OPENAI_MODEL=
-AI_GATEWAY_API_KEY=
-AI_GATEWAY_MODEL=
-```
+The existing Vercel project builds from GitHub. Production explicitly selects mainnet in `next.config.mjs`, so a legacy testnet environment variable cannot silently publish a testnet wallet. Use a separate preview for testnet work. Network and token overrides remain public build-time configuration: only use verified official values.
 
-Do not place private keys, seed phrases, or server API keys in any `NEXT_PUBLIC_` variable.
+After deployment, verify `/network`, wallet connection, balances, payment QR chain ID, and a small wallet-approved transfer. Confirm the receipt in Arc Explorer. Test swap and bridge with small amounts before relying on them for larger transfers. No live signing wallet is included in this repository.
 
-## Deployment
+## References
 
-The repository is linked to Vercel. Push a branch for a preview deployment, run the end-to-end verification flow there, then promote the verified commit to production.
+Verified against official documentation and installed SDK definitions on September 22–23, 2026:
 
-Arc Testnet defaults:
-
-- Chain ID: `5042002`
-- RPC: `https://rpc.testnet.arc.network`
-- Explorer: `https://testnet.arcscan.app`
-- Gas token: `USDC`
-- Faucet: `https://faucet.circle.com`
+- https://docs.arc.io/arc/references/connect-to-arc
+- https://docs.arc.io/arc/references/contract-addresses
+- https://docs.arc.io/arc/references/evm-differences
+- https://developers.circle.com/app-kit
+- https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq

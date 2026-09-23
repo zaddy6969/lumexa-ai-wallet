@@ -1,17 +1,26 @@
+import { useAccount } from "wagmi";
+import { normalizePreparedWalletAction } from "../lib/wallet-copilot";
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 
 const PreparedWalletActionContext = createContext(null);
 
 export function PreparedWalletActionProvider({ children }) {
-  const [preparedAction, setPreparedActionState] = useState(null);
+  const { address } = useAccount();
+  const [storedAction, setPreparedActionState] = useState(null);
 
-  const prepareAction = useCallback((action) => {
-    if (!action?.tool) return;
-    setPreparedActionState({
-      ...action,
-      id: action.id || `${Date.now()}-${Math.random()}`
-    });
-  }, []);
+  const preparedAction = storedAction?.owner === address ? storedAction : null;
+  const prepareAction = useCallback(
+    (action) => {
+      const validated = action?.tool ? normalizePreparedWalletAction(action) : null;
+      if (!validated) return;
+      setPreparedActionState({
+        ...validated,
+        owner: address,
+        id: action.id || `${Date.now()}-${Math.random()}`
+      });
+    },
+    [address]
+  );
 
   const clearPreparedAction = useCallback((expectedId) => {
     setPreparedActionState((current) => {

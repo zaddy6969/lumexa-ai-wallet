@@ -1,9 +1,20 @@
 import { BrowserProvider, Contract, formatUnits, parseUnits } from "ethers";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { isAddress } from "viem";
 import { useAccount, useChainId, useSwitchChain } from "wagmi";
 import { ARC_USDC_ERC20_ADDRESS, arcTestnet } from "../lib/arc-chain";
 import { createWalletActionRecord } from "../lib/local-activity";
+import {
+  arcFeeEstimate,
+  assertRecipient,
+  assertReview,
+  assertWalletIdentity,
+  maxSendUnits,
+  parseTransferAmount,
+  USDC_SCALE
+} from "../lib/transaction-safety.mjs";
+import { isZeroEvmAddress } from "../lib/wallet-validation.mjs";
+import { switchWalletNetwork } from "../lib/wallet-network";
 
 const USDC_ABI = [
   "function transfer(address to, uint256 amount) returns (bool)",
@@ -15,19 +26,12 @@ const ARC_NETWORK_LABEL = arcTestnet.name || "Arc";
 const ARC_NETWORK_KEY = arcTestnet.testnet ? "Arc_Testnet" : "Arc_Mainnet";
 
 function normalizeAmount(value) {
-  const next = String(value || "").replace(/[^\d.]/g, "");
-  const [whole, ...rest] = next.split(".");
-  return rest.length ? `${whole}.${rest.join("").slice(0, 6)}` : whole;
+  return String(value || "").trim();
 }
 
 function shortAddress(address) {
   if (!address) return "";
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
-}
-
-function parseDisplayedBalance(value) {
-  const numeric = Number(String(value || "").replace(/[^\d.-]/g, ""));
-  return Number.isFinite(numeric) ? numeric : 0;
 }
 
 function formatNumber(value, maximumFractionDigits = 6) {
@@ -76,14 +80,19 @@ async function getTransferContext(connector, sender, recipient, amount) {
   const injectedProvider = await connector.getProvider();
   if (!injectedProvider) throw new Error("Wallet provider is unavailable.");
 
+  await assertWalletIdentity(injectedProvider, sender, arcTestnet.id);
+  assertRecipient(recipient);
+  parseTransferAmount(amount);
   const provider = new BrowserProvider(injectedProvider);
-  const signer = await provider.getSigner();
+  const signer = await provider.getSigner(sender);
   const contract = new Contract(ARC_USDC_ERC20_ADDRESS, USDC_ABI, signer);
   const decimals = Number(await contract.decimals());
+  if (decimals !== 6) throw new Error("Unexpected USDC contract decimals. Transfer blocked.");
   const parsedAmount = parseUnits(amount, decimals);
   const balance = await contract.balanceOf(sender);
 
-  return { provider, contract, parsedAmount, balance };
+  const nativeBalance = await provider.getBalance(sender);
+  return { injectedProvider, provider, contract, parsedAmount, balance, nativeBalance };
 }
 
 function initialSendValue(action, field) {
@@ -101,6 +110,7 @@ export default function SendUsdcPanel({
   const { connector } = useAccount();
   const chainId = useChainId();
   const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain();
+  const actionLock = useRef(false);
   const [recipient, setRecipient] = useState(() => initialSendValue(copilotAction, "recipient"));
   const [amount, setAmount] = useState(() => initialSendValue(copilotAction, "amount"));
   const [status, setStatus] = useState("idle");
@@ -109,11 +119,19 @@ export default function SendUsdcPanel({
   const [result, setResult] = useState(null);
 
   const isSignedIn = Boolean(walletSnapshot?.isSignedIn);
-  const recipientValid = Boolean(recipient) && isAddress(recipient);
+  const recipientValid = Boolean(recipient) && isAddress(recipient) && !isZeroEvmAddress(recipient);
+  const reviewIdentity = JSON.stringify([
+    walletSnapshot?.address,
+    arcTestnet.id,
+    recipient,
+    amount
+  ]);
   const amountValue = Number(amount || 0);
   const amountValid = Number.isFinite(amountValue) && amountValue > 0;
-  const availableUsdc = parseDisplayedBalance(walletSnapshot?.usdcBalance);
-  const balanceReady = walletSnapshot?.balanceStatus === "ready";
+  const availableUsdc = Number(
+    walletSnapshot?.assets?.find((asset) => asset.symbol === "USDC")?.balanceValue || 0
+  );
+  const balanceReady = walletSnapshot?.onArc && walletSnapshot?.balanceStatus === "ready";
   const amountExceedsBalance = balanceReady && amountValue > availableUsdc + 0.0000001;
   const needsArcSwitch = isSignedIn && chainId !== arcTestnet.id;
   const busy =
@@ -125,7 +143,6 @@ export default function SendUsdcPanel({
   const totalExceedsBalance = Boolean(
     estimate && balanceReady && totalDebit > availableUsdc + 0.0000001
   );
-  const safeMax = Math.max(0, availableUsdc - feeValue - 0.000001);
 
   const explorerUrl = useMemo(
     () =>
@@ -143,10 +160,8 @@ export default function SendUsdcPanel({
   };
 
   const ensureArcNetwork = async () => {
-    if (chainId === arcTestnet.id) return;
-    if (!switchChainAsync) throw new Error("Wallet network switching is unavailable.");
     setStatus("switching");
-    await switchChainAsync({ chainId: arcTestnet.id });
+    await switchWalletNetwork({ connector, chain: arcTestnet, switchChainAsync });
   };
 
   const validateTransfer = async () => {
@@ -164,7 +179,7 @@ export default function SendUsdcPanel({
   };
 
   const createEstimate = async () => {
-    if (needsArcSwitch) await ensureArcNetwork();
+    await ensureArcNetwork();
     setStatus("estimating");
     const context = await validateTransfer();
     const gasLimit = await context.contract.transfer.estimateGas(recipient, context.parsedAmount);
@@ -174,16 +189,23 @@ export default function SendUsdcPanel({
     if (!gasPrice) throw new Error("Unable to estimate the Arc network fee.");
 
     const nextEstimate = {
-      gasLimit,
-      gasPrice,
-      fee: gasLimit * gasPrice
+      ...arcFeeEstimate(gasLimit, gasPrice),
+      identity: reviewIdentity,
+      createdAt: Date.now()
     };
+    if (context.nativeBalance < context.parsedAmount * USDC_SCALE + nextEstimate.fee) {
+      throw new Error(
+        "Not enough USDC for the transfer and maximum network fee. Use MAX to reserve gas."
+      );
+    }
     setEstimate(nextEstimate);
     setStatus("ready");
     return { context, nextEstimate };
   };
 
   const handleReview = async () => {
+    if (actionLock.current) return;
+    actionLock.current = true;
     setError("");
     setResult(null);
 
@@ -196,21 +218,34 @@ export default function SendUsdcPanel({
       setEstimate(null);
       setStatus("error");
       setError(formatSendError(nextError, "Unable to review this transfer."));
+    } finally {
+      actionLock.current = false;
     }
   };
 
   const handleSend = async () => {
-    if (!estimate || totalExceedsBalance) return;
+    if (!estimate || totalExceedsBalance || actionLock.current || result?.hash) return;
+    actionLock.current = true;
+    let submittedHash = "";
 
     setStatus("sending");
     setError("");
     setResult(null);
 
     try {
-      if (needsArcSwitch) await ensureArcNetwork();
-      const { contract, parsedAmount } = await validateTransfer();
+      await ensureArcNetwork();
+      assertReview(estimate, reviewIdentity);
+      const { contract, parsedAmount, nativeBalance, injectedProvider } = await validateTransfer();
+      if (nativeBalance < parsedAmount * USDC_SCALE + estimate.fee)
+        throw new Error("Not enough USDC for this transfer and fee.");
+      await assertWalletIdentity(injectedProvider, walletSnapshot.address, arcTestnet.id);
       setStatus("sending");
-      const transaction = await contract.transfer(recipient, parsedAmount);
+      const transaction = await contract.transfer(recipient, parsedAmount, {
+        gasLimit: estimate.gasLimit,
+        maxFeePerGas: estimate.maxFeePerGas,
+        maxPriorityFeePerGas: 0n
+      });
+      submittedHash = transaction.hash;
       setResult({ hash: transaction.hash });
 
       onActivitySaved?.(
@@ -220,6 +255,7 @@ export default function SendUsdcPanel({
           kind: "sent",
           amount: `${amount} USDC`,
           chain: ARC_NETWORK_LABEL,
+          chainId: arcTestnet.id,
           sender: walletSnapshot.address,
           receiver: recipient,
           recipient,
@@ -234,7 +270,7 @@ export default function SendUsdcPanel({
       );
 
       setStatus("confirming");
-      const receipt = await transaction.wait();
+      const receipt = await transaction.wait(1, 90_000);
       const confirmed = receipt?.status === 1;
       onActivityUpdated?.(transaction.hash, {
         status: confirmed ? "Confirmed" : "Failed",
@@ -243,16 +279,61 @@ export default function SendUsdcPanel({
       setStatus(confirmed ? "success" : "error");
       if (!confirmed) setError(`Transaction failed on ${ARC_NETWORK_LABEL}.`);
     } catch (nextError) {
-      setStatus("error");
-      setError(formatSendError(nextError, "Unable to send USDC."));
+      if (submittedHash) {
+        setStatus("submitted");
+        setError(
+          "Transaction submitted. Check its receipt in Activity or the explorer before sending again."
+        );
+        if (nextError?.code === "TRANSACTION_REPLACED" && nextError.receipt) {
+          const replacementHash = nextError.receipt.hash;
+          const replacementStatus = nextError.cancelled
+            ? "Cancelled"
+            : nextError.receipt.status === 1
+              ? "Confirmed"
+              : "Failed";
+          setResult({ hash: replacementHash });
+          onActivityUpdated?.(submittedHash, {
+            status: replacementStatus,
+            txHash: replacementHash,
+            explorerUrl: `${arcTestnet.blockExplorers.default.url}/tx/${replacementHash}`
+          });
+        }
+      } else {
+        setEstimate(null);
+        setStatus("error");
+        setError(formatSendError(nextError, "Unable to send USDC."));
+      }
+    } finally {
+      actionLock.current = false;
     }
   };
 
-  const useMax = () => {
-    if (!balanceReady || availableUsdc <= 0) return;
-    const next = estimate ? safeMax : availableUsdc;
-    setAmount(next.toFixed(6).replace(/0+$/, "").replace(/\.$/, ""));
+  const useMax = async () => {
+    if (!recipientValid || !connector || actionLock.current) return;
+    actionLock.current = true;
     resetReview();
+    try {
+      await ensureArcNetwork();
+      setStatus("estimating");
+      const context = await getTransferContext(
+        connector,
+        walletSnapshot.address,
+        recipient,
+        "0.000001"
+      );
+      const gas = await context.contract.transfer.estimateGas(recipient, 1n);
+      const fees = await context.provider.getFeeData();
+      const budget = arcFeeEstimate(gas, fees.gasPrice || fees.maxFeePerGas);
+      const units = maxSendUnits(context.nativeBalance, budget.fee);
+      if (!units) throw new Error("Not enough USDC to reserve the network fee.");
+      setAmount(formatUnits(units, 6));
+      setStatus("idle");
+    } catch (nextError) {
+      setStatus("error");
+      setError(formatSendError(nextError, "Unable to calculate the maximum transfer."));
+    } finally {
+      actionLock.current = false;
+    }
   };
 
   if (!isSignedIn) {
@@ -279,7 +360,10 @@ export default function SendUsdcPanel({
         <div>
           <span className="send-eyebrow">Arc Transfer</span>
           <h2>Send USDC</h2>
-          <p>Enter a recipient, review the fee, then confirm in your wallet.</p>
+          <p>
+            Enter a recipient, review the fee, then confirm in your wallet. Arc uses the same USDC
+            balance for the transfer and gas.
+          </p>
         </div>
         <span className="send-network-pill">{ARC_NETWORK_LABEL}</span>
       </div>
@@ -301,6 +385,7 @@ export default function SendUsdcPanel({
         </div>
         <label className={`send-address-field ${recipient && !recipientValid ? "has-error" : ""}`}>
           <input
+            disabled={busy || Boolean(result?.hash)}
             value={recipient}
             onChange={(event) => {
               setRecipient(event.target.value.trim());
@@ -329,6 +414,7 @@ export default function SendUsdcPanel({
         <label className="send-amount-field">
           <div>
             <input
+              disabled={busy || Boolean(result?.hash)}
               value={amount}
               onChange={(event) => {
                 setAmount(normalizeAmount(event.target.value));
@@ -343,7 +429,11 @@ export default function SendUsdcPanel({
           <span className="send-available-line">
             Available {balanceReady ? `${formatNumber(availableUsdc)} USDC` : "syncing…"}
             {balanceReady && availableUsdc > 0 ? (
-              <button type="button" onClick={useMax}>
+              <button
+                type="button"
+                onClick={useMax}
+                disabled={busy || !recipientValid || Boolean(result?.hash)}
+              >
                 MAX
               </button>
             ) : null}
@@ -382,12 +472,12 @@ export default function SendUsdcPanel({
               <strong>{amount} USDC</strong>
             </div>
             <div>
-              <span>Network fee</span>
+              <span>Maximum network fee</span>
               <strong>{formatGasFee(estimate.fee)}</strong>
             </div>
             <div>
               <span>Recipient</span>
-              <strong>{shortAddress(recipient)}</strong>
+              <strong className="full-address">{recipient}</strong>
             </div>
             <div>
               <span>Network</span>
@@ -409,7 +499,11 @@ export default function SendUsdcPanel({
             </p>
           </div>
           {balanceReady && availableUsdc > 0 ? (
-            <button type="button" onClick={useMax}>
+            <button
+              type="button"
+              onClick={useMax}
+              disabled={busy || !recipientValid || Boolean(result?.hash)}
+            >
               Use max
             </button>
           ) : null}
@@ -458,13 +552,15 @@ export default function SendUsdcPanel({
               type="button"
               className="button button-primary"
               onClick={handleSend}
-              disabled={busy || totalExceedsBalance}
+              disabled={busy || totalExceedsBalance || Boolean(result?.hash)}
             >
               {status === "sending"
                 ? "Confirm in wallet…"
                 : status === "confirming"
                   ? "Confirming…"
-                  : `Send ${amount} USDC`}
+                  : result?.hash
+                    ? "Submitted"
+                    : `Send ${amount} USDC`}
             </button>
             <button
               type="button"
@@ -472,7 +568,7 @@ export default function SendUsdcPanel({
               onClick={resetReview}
               disabled={busy}
             >
-              Edit
+              {result?.hash ? "Start another transfer" : "Edit"}
             </button>
           </>
         )}

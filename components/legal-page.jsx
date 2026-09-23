@@ -3,7 +3,12 @@ import Image from "next/image";
 import Link from "next/link";
 import SiteFooter from "./site-footer";
 
-export default function LegalPage({ title, description, children }) {
+export default function LegalPage({
+  title,
+  description,
+  children,
+  updated = "September 10, 2026"
+}) {
   return (
     <main className="legal-page">
       <Head>
@@ -28,7 +33,7 @@ export default function LegalPage({ title, description, children }) {
       <article className="legal-card">
         <span className="eyebrow">Lumexa AI Wallet</span>
         <h1>{title}</h1>
-        <p className="legal-updated">Updated September 10, 2026</p>
+        <p className="legal-updated">Updated {updated}</p>
         {children}
       </article>
       <SiteFooter />

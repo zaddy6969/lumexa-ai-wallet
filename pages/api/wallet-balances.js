@@ -61,8 +61,18 @@ async function readMarketPrices() {
   const cached = globalThis[PRICE_CACHE];
   if (cached && Date.now() - cached.checkedAt < PRICE_CACHE_MS) return cached.value;
 
-  const [ethUsd, btcUsd] = await Promise.all([readSpotPrice("ETH-USD"), readSpotPrice("BTC-USD")]);
-  const value = { ethUsd, btcUsd, source: "coinbase-reference" };
+  const [ethUsd, btcUsd, eurUsd] = await Promise.all([
+    readSpotPrice("ETH-USD"),
+    readSpotPrice("BTC-USD"),
+    readSpotPrice("EUR-USD")
+  ]);
+  const value = {
+    ethUsd,
+    btcUsd,
+    eurUsd,
+    source: "coinbase-reference",
+    checkedAt: new Date().toISOString()
+  };
   globalThis[PRICE_CACHE] = { checkedAt: Date.now(), value };
   return value;
 }
@@ -75,7 +85,9 @@ function tokenConfigForChain(chain, prices) {
         ? null
         : token.symbol === "cirBTC" && prices.btcUsd > 0
           ? prices.btcUsd
-          : safeNumber(token.priceUsd)
+          : token.symbol === "EURC"
+            ? prices.eurUsd || null
+            : token.priceUsd || null
     }));
   }
 
@@ -153,7 +165,8 @@ async function readNetworkBalance(chain, address, prices) {
     const balanceValue =
       result?.status === "fulfilled" ? safeNumber(formatUnits(result.value, token.decimals)) : 0;
     const referencePriceUsd = token.referencePriceUsd;
-    const referenceValueUsd = referencePriceUsd ? balanceValue * referencePriceUsd : null;
+    const referenceValueUsd =
+      result?.status === "fulfilled" && referencePriceUsd ? balanceValue * referencePriceUsd : null;
     return {
       symbol: token.symbol,
       name: token.name,
@@ -180,6 +193,8 @@ async function readNetworkBalance(chain, address, prices) {
     usdcAsset.balanceValue = nativeBalance;
     usdcAsset.balanceDisplay = `${formatAmount(nativeBalance, 4)} USDC`;
     usdcAsset.status = "ready";
+    usdcAsset.referenceValueUsd = chain.testnet ? null : nativeBalance;
+    usdcAsset.referenceValueUsdDisplay = chain.testnet ? "Testnet token" : formatUsd(nativeBalance);
   }
 
   if (chain.id !== arcTestnet.id && nativeResult.status === "fulfilled") {
@@ -297,6 +312,7 @@ export default async function handler(req, res) {
     totalAssetCount,
     networks,
     priceSource: prices.source,
+    priceCheckedAt: prices.checkedAt || null,
     partial: readyNetworks.length !== networks.length,
     checkedAt: new Date().toISOString()
   });

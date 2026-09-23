@@ -5306,3 +5306,15 @@ body {
     display: none;
   }
 }
+
+/* Keep financial identifiers readable on narrow screens. */
+.full-address,
+.transaction-result code,
+.transaction-review-card p {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.legal-card li {
+  margin: 0.75rem 0;
+  line-height: 1.65;
+}

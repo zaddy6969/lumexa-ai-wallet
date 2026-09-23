@@ -21,6 +21,15 @@ const contentSecurityPolicy = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Production is the mainnet product; use a separate preview for testnet work.
+  ...(process.env.VERCEL_ENV === "production"
+    ? {
+        env: {
+          NEXT_PUBLIC_ARC_NETWORK: "mainnet",
+          NEXT_PUBLIC_ARC_MAINNET_ENABLED: "true"
+        }
+      }
+    : {}),
   compress: true,
   poweredByHeader: false,
   reactStrictMode: true,

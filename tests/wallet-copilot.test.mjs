@@ -6,6 +6,10 @@ import {
   normalizePreparedWalletAction
 } from "../lib/wallet-copilot.js";
 
+import { ARC_NETWORK_MODE, arcActiveChain } from "../lib/arc-chain.js";
+const baseNetwork = ARC_NETWORK_MODE === "mainnet" ? "base-mainnet" : "base-sepolia";
+const baseName = ARC_NETWORK_MODE === "mainnet" ? "Base" : "Base Sepolia";
+
 const RECIPIENT = "0x1111111111111111111111111111111111111111";
 const FULL_HASH = `0x${"a".repeat(64)}`;
 
@@ -14,8 +18,8 @@ function walletContext() {
     wallet: {
       address: "0x9999999999999999999999999999999999999999",
       connected: true,
-      chainId: 5042002,
-      network: "Arc Testnet",
+      chainId: arcActiveChain.id,
+      network: arcActiveChain.name,
       onArc: true,
       balanceStatus: "ready"
     },
@@ -99,12 +103,12 @@ test("local intelligence reconstructs a confirmed bridge from saved route metada
       type: "Bridge",
       kind: "bridge",
       amount: "10 USDC",
-      chain: "Arc Testnet → Base Sepolia",
+      chain: `${arcActiveChain.name} → ${baseName}`,
       status: "Confirmed",
       metadata: {
         operation: "bridge",
-        sourceNetwork: "Arc Testnet",
-        destinationNetwork: "Base Sepolia"
+        sourceNetwork: arcActiveChain.name,
+        destinationNetwork: baseName
       }
     }
   ];
@@ -118,7 +122,7 @@ test("local intelligence reconstructs a confirmed bridge from saved route metada
   assert.equal(result.actions[0]?.tool, "prepare_bridge");
   assert.deepEqual(result.actions[0]?.args, {
     sourceNetwork: "arc",
-    destinationNetwork: "base-sepolia",
+    destinationNetwork: baseNetwork,
     amount: "10"
   });
   assert.match(result.answer, /verify the live route/i);
@@ -161,7 +165,7 @@ test("local intelligence prepares swaps and infers the active bridge source", ()
   });
   assert.deepEqual(bridge.actions[0]?.args, {
     sourceNetwork: "arc",
-    destinationNetwork: "base-sepolia",
+    destinationNetwork: baseNetwork,
     amount: "6"
   });
 });

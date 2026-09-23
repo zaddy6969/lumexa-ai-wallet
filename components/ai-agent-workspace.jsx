@@ -15,14 +15,23 @@ export default function AiAgentWorkspace({
           <h1>AI Wallet Agent</h1>
           <p>
             Speak in normal English. Lumexa understands your intent, preserves exact transaction
-            values, remembers prepared actions in this session, and fills the wallet flow while
-            your connected wallet keeps final signing control.
+            values, remembers prepared actions in this session, and fills the wallet flow while your
+            connected wallet keeps final signing control.
           </p>
         </div>
         <div className="lumexa-agent-trust-strip">
-          <span><i />Natural language</span>
-          <span><i />Session memory</span>
-          <span><i />Self-custodial</span>
+          <span>
+            <i />
+            Natural language
+          </span>
+          <span>
+            <i />
+            Session memory
+          </span>
+          <span>
+            <i />
+            Self-custodial
+          </span>
         </div>
       </header>
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useAccount, useChainId, useSwitchChain } from "wagmi";
 import { createArcAppKitClient, formatAppKitError } from "../lib/arc-app-kit";
 import {
@@ -12,6 +12,13 @@ import {
 } from "../lib/arc-chain";
 import { createWalletActionRecord } from "../lib/local-activity";
 import { switchWalletNetwork } from "../lib/wallet-network";
+import {
+  assertReview,
+  assertWalletIdentity,
+  minimumSwapOutput,
+  parseTransferAmount,
+  guardedWalletProvider
+} from "../lib/transaction-safety.mjs";
 import { FeatureIcon } from "./wallet-sidebar";
 
 const TOKENS = ARC_PORTFOLIO_TOKENS.filter((token) => token.address).map((token) => token.symbol);
@@ -28,9 +35,7 @@ const META = {
 };
 
 function cleanAmount(value) {
-  const next = String(value || "").replace(/[^\d.]/g, "");
-  const [whole, ...rest] = next.split(".");
-  return rest.length ? `${whole}.${rest.join("").slice(0, 8)}` : whole;
+  return String(value || "").trim();
 }
 
 function validAmount(value) {
@@ -137,6 +142,7 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
   const chainId = useChainId();
   const { switchChainAsync, isPending: switching } = useSwitchChain();
   const initialValues = initialSwapValues(copilotAction);
+  const actionLock = useRef(false);
   const [tokenIn, setTokenIn] = useState(initialValues.tokenIn);
   const [tokenOut, setTokenOut] = useState(initialValues.tokenOut);
   const [amount, setAmount] = useState(initialValues.amount);
@@ -149,7 +155,7 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
 
   const inputAsset = useMemo(() => getAsset(walletSnapshot, tokenIn), [walletSnapshot, tokenIn]);
   const outputAsset = useMemo(() => getAsset(walletSnapshot, tokenOut), [walletSnapshot, tokenOut]);
-  const balanceKnown = inputAsset?.status === "ready";
+  const balanceKnown = walletSnapshot?.onArc && inputAsset?.status === "ready";
   const balance = Number(inputAsset?.balanceValue || 0);
   const insufficient = balanceKnown && Number(amount || 0) > balance + 0.0000001;
   const quotedOutput = useMemo(() => outputQuote(quote, tokenOut), [quote, tokenOut]);
@@ -157,7 +163,15 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
     ? `${quotedOutput.amount} ${quotedOutput.token || tokenOut}`
     : "";
   const fees = useMemo(() => feeRows(quote), [quote]);
-  const busy = switching || status === "switching" || status === "swapping";
+  const busy = switching || ["switching", "swapping", "quoting"].includes(status);
+  const reviewIdentity = JSON.stringify([
+    walletSnapshot?.address,
+    arcTestnet.id,
+    tokenIn,
+    tokenOut,
+    amount,
+    slippageBps
+  ]);
   const canReview =
     CONFIGURED &&
     walletSnapshot?.isSignedIn &&
@@ -173,7 +187,7 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
       tokenIn: tokenIdentifier(tokenIn),
       tokenOut: tokenIdentifier(tokenOut),
       amountIn: amount,
-      config: { slippageBps }
+      config: { slippageBps, allowanceStrategy: "approve" }
     }),
     [amount, slippageBps, tokenIn, tokenOut]
   );
@@ -186,41 +200,7 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
     setStatus("idle");
   };
 
-  useEffect(() => {
-    if (!canReview || Number(chainId) !== Number(arcTestnet.id) || !connector?.getProvider)
-      return undefined;
-
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      setQuoteError("");
-      setStatus((current) => (current === "swapping" ? current : "quoting"));
-      try {
-        const provider = await connector.getProvider();
-        if (!provider?.request) throw new Error("Wallet provider is unavailable.");
-        const client = await createArcAppKitClient(provider);
-        const nextQuote = await client.kit.estimateSwap(buildParams(client));
-        if (cancelled) return;
-        const parsed = outputQuote(nextQuote, tokenOut);
-        if (!parsed.amount) throw new Error("Circle returned a quote without an output amount.");
-        setQuote(nextQuote);
-        setStatus("ready");
-      } catch (nextError) {
-        if (cancelled) return;
-        setQuote(null);
-        setStatus("idle");
-        setQuoteError(
-          formatAppKitError(nextError, "No live swap route is available for this pair right now.")
-        );
-      }
-    }, 550);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [buildParams, canReview, chainId, connector, tokenOut]);
-
-  const prepare = async () => {
+  const prepare = async (onSubmitted = () => {}) => {
     if (!canReview)
       throw new Error(
         insufficient ? `Insufficient ${tokenIn} balance.` : "Enter a valid swap amount and pair."
@@ -233,11 +213,20 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
       chain: arcChain,
       switchChainAsync
     });
-    const client = await createArcAppKitClient(provider);
-    return { client, params: buildParams(client) };
+    await assertWalletIdentity(provider, walletSnapshot.address, arcTestnet.id);
+    parseTransferAmount(
+      amount,
+      ARC_PORTFOLIO_TOKENS.find((token) => token.symbol === tokenIn)?.decimals || 6
+    );
+    const client = await createArcAppKitClient(
+      guardedWalletProvider(provider, walletSnapshot.address, [arcTestnet.id], onSubmitted)
+    );
+    return { client, provider, params: buildParams(client) };
   };
 
   const handleReview = async () => {
+    if (actionLock.current || result) return;
+    actionLock.current = true;
     setError("");
     setQuoteError("");
     setResult(null);
@@ -247,7 +236,13 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
       const nextQuote = await client.kit.estimateSwap(params);
       const parsed = outputQuote(nextQuote, tokenOut);
       if (!parsed.amount) throw new Error("Circle returned a quote without an output amount.");
-      setQuote(nextQuote);
+      const outputDecimals =
+        ARC_PORTFOLIO_TOKENS.find((token) => token.symbol === tokenOut)?.decimals || 6;
+      setQuote({
+        ...nextQuote,
+        review: { identity: reviewIdentity, createdAt: Date.now() },
+        minimumOutput: minimumSwapOutput(nextQuote, outputDecimals, slippageBps)
+      });
       setStatus("ready");
     } catch (nextError) {
       setQuote(null);
@@ -255,17 +250,45 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
       setError(
         formatAppKitError(nextError, "No live swap route is available for this pair right now.")
       );
+    } finally {
+      actionLock.current = false;
     }
   };
 
   const handleSwap = async () => {
-    if (!hasLiveQuote || !canReview) return;
+    if (!hasLiveQuote || !canReview || actionLock.current || result) return;
+    actionLock.current = true;
     setError("");
     setQuoteError("");
     try {
-      const { client, params } = await prepare();
+      assertReview(quote.review, reviewIdentity);
+      const { client, provider, params } = await prepare((hash) => {
+        setResult({ state: "pending", txHash: hash });
+        onActivitySaved?.(
+          createWalletActionRecord({
+            walletAddress: walletSnapshot.address,
+            type: "Swap",
+            kind: "swap",
+            amount: `${amount} ${tokenIn}`,
+            chain: arcTestnet.name,
+            chainId: arcTestnet.id,
+            sender: walletSnapshot.address,
+            receiver: walletSnapshot.address,
+            status: "Submitted",
+            txHash: hash,
+            explorerUrl: explorerUrl(null, hash),
+            summary: "Swap transaction submitted; verify completion on the explorer.",
+            metadata: { operation: "swap" }
+          })
+        );
+      });
+      await assertWalletIdentity(provider, walletSnapshot.address, arcTestnet.id);
+      assertReview(quote.review, reviewIdentity);
       setStatus("swapping");
-      const nextResult = await client.kit.swap(params);
+      const nextResult = await client.kit.swap({
+        ...params,
+        config: { ...params.config, stopLimit: quote.minimumOutput }
+      });
       setResult(nextResult);
       const failed = nextResult?.state === "error";
       const hash = txHash(nextResult);
@@ -275,7 +298,7 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
         : nextResult?.state === "success"
           ? "Confirmed"
           : "Submitted";
-      setStatus(failed ? "error" : "success");
+      setStatus(failed ? "error" : nextResult?.state === "success" ? "success" : "submitted");
       onActivitySaved?.(
         createWalletActionRecord({
           walletAddress: walletSnapshot.address,
@@ -296,7 +319,15 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
       if (failed) setError("Circle returned a failed swap result. No success is being claimed.");
     } catch (nextError) {
       setStatus("error");
-      setError(formatAppKitError(nextError, "Unable to submit this swap."));
+      setQuote(null);
+      setError(
+        formatAppKitError(
+          nextError,
+          "Unable to submit this swap. Check Activity before retrying if your wallet already submitted a transaction."
+        )
+      );
+    } finally {
+      actionLock.current = false;
     }
   };
 
@@ -321,8 +352,7 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
           <span>Arc liquidity</span>
           <h2>Swap</h2>
           <p>
-            Live output updates as you type. Review fees, then approve the actual transaction in
-            your wallet.
+            Request a live quote, review the minimum output and fees, then approve in your wallet.
           </p>
         </div>
         <div className="transaction-network-pill">
@@ -347,6 +377,8 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
           </header>
           <div>
             <input
+              aria-label="Swap amount"
+              disabled={busy || Boolean(result)}
               value={amount}
               onChange={(event) => {
                 setAmount(cleanAmount(event.target.value));
@@ -358,6 +390,8 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
             <label>
               <b>{META[tokenIn]?.mark}</b>
               <select
+                aria-label="Pay token"
+                disabled={busy || Boolean(result)}
                 value={tokenIn}
                 onChange={(event) => {
                   const next = event.target.value;
@@ -372,9 +406,10 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
               </select>
             </label>
           </div>
-          {balanceKnown ? (
+          {balanceKnown && tokenIn !== "USDC" ? (
             <button
               type="button"
+              disabled={busy || Boolean(result)}
               onClick={() => {
                 setAmount(String(balance));
                 resetReview();
@@ -393,6 +428,7 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
             setTokenOut(tokenIn);
             resetReview();
           }}
+          disabled={busy || Boolean(result)}
           aria-label="Reverse swap pair"
         >
           <FeatureIcon name="swap" />
@@ -412,6 +448,8 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
             <label>
               <b>{META[tokenOut]?.mark}</b>
               <select
+                aria-label="Receive token"
+                disabled={busy || Boolean(result)}
                 value={tokenOut}
                 onChange={(event) => {
                   const next = event.target.value;
@@ -444,6 +482,7 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
           <button
             key={value}
             type="button"
+            disabled={busy || Boolean(result)}
             className={slippageBps === value ? "is-active" : ""}
             onClick={() => {
               setSlippageBps(value);
@@ -480,6 +519,12 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
             <span className="is-ready">Live quote</span>
           </header>
           <div className="transaction-fees">
+            <div>
+              <span>Minimum received</span>
+              <strong>
+                {quote.minimumOutput} {tokenOut}
+              </strong>
+            </div>
             {fees.length ? (
               fees.map((row) => (
                 <div key={row.id}>
@@ -530,12 +575,22 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
         </div>
       ) : null}
 
+      {result ? (
+        <button
+          type="button"
+          className="transaction-secondary"
+          onClick={resetReview}
+          disabled={busy}
+        >
+          Start another swap
+        </button>
+      ) : null}
       <div className="transaction-actions">
         <button
           type="button"
           className="transaction-secondary"
           onClick={handleReview}
-          disabled={!canReview || busy}
+          disabled={!canReview || busy || Boolean(result)}
         >
           {status === "switching"
             ? "Switching network…"
@@ -549,7 +604,7 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
           type="button"
           className="transaction-primary"
           onClick={handleSwap}
-          disabled={!hasLiveQuote || !canReview || busy}
+          disabled={!hasLiveQuote || !canReview || busy || Boolean(result)}
         >
           {status === "swapping" ? "Swapping…" : "Confirm in wallet"}
         </button>
