@@ -24,3 +24,7 @@ The September 23, 2026 production dependency audit reports zero critical advisor
 - One low-severity `elliptic` implementation advisory beneath Circle's ethers v5 dependency. The patched version named by the advisory is not published.
 
 These constraints should be rechecked whenever Circle App Kit, RainbowKit, Wagmi, or their connector packages release updates.
+
+## AI transaction boundary
+
+The model has no private keys and no signing or arbitrary-calldata tool. Its allowlisted tools return validated transaction parameters. Send, Swap and Bridge fetch live reviews in the browser. A user confirmation opens connected-wallet signing; it never bypasses that wallet's approval. The app rejects expired reviews, changed accounts/networks and reused chat confirmations. AI/provider errors return explicit errors with no fallback success or scripted answer. API access is rate-limited per IP per server instance; production-wide budget controls belong in the team's AI Gateway settings.

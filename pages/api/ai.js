@@ -4,4 +4,4 @@ export default function handler(req, res) {
   return handleWalletChat(req, res);
 }
 
-export const config = { api: { bodyParser: { sizeLimit: "32kb" } } };
+export const config = { api: { bodyParser: { sizeLimit: "32kb" } }, maxDuration: 60 };

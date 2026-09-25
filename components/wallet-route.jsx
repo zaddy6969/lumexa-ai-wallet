@@ -193,6 +193,8 @@ function ConnectedWalletExperience({ initialView, initialReceiveOpen, walletSnap
               activityStatus={liveActivityStatus}
               initialPrompt={assistantPrompt}
               onWalletAction={handleCopilotAction}
+              onActivitySaved={saveLocalActivity}
+              onActivityUpdated={updateLocalActivityByHash}
             />
           ) : activeView === "activity" ? (
             <TransactionActivity
@@ -259,10 +261,10 @@ export default function WalletRoute({ initialView = "dashboard", initialReceiveO
       <Head>
         <title>{title}</title>
         <meta name="description" content={description} />
-        <meta name="theme-color" content="#061326" />
+        <meta name="theme-color" content="#08070c" />
         <link rel="canonical" href={`${SITE_URL}${canonicalPath}`} />
       </Head>
-      {walletSnapshot?.isSignedIn ? (
+      {walletSnapshot?.isSignedIn || view === "agent" ? (
         <ConnectedWalletExperience
           key={walletSnapshot.address}
           initialView={view}

@@ -1,3 +1,4 @@
+import { useAgentTransaction } from "../lib/use-agent-transaction";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useAccount, useChainId, useSwitchChain } from "wagmi";
 import { createArcAppKitClient, formatAppKitError } from "../lib/arc-app-kit";
@@ -137,7 +138,13 @@ function initialSwapValues(action) {
   };
 }
 
-export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotAction }) {
+export default function SwapPanel({
+  walletSnapshot,
+  onActivitySaved,
+  copilotAction,
+  agentController,
+  onAgentState
+}) {
   const { connector } = useAccount();
   const chainId = useChainId();
   const { switchChainAsync, isPending: switching } = useSwitchChain();
@@ -330,6 +337,20 @@ export default function SwapPanel({ walletSnapshot, onActivitySaved, copilotActi
       actionLock.current = false;
     }
   };
+
+  useAgentTransaction({
+    controller: agentController,
+    actionId: copilotAction?.id,
+    ready: Boolean(hasLiveQuote && canReview && !result && status === "ready"),
+    busy,
+    review: quote?.review,
+    identity: reviewIdentity,
+    prepare: handleReview,
+    confirm: handleSwap,
+    onState: onAgentState,
+    error,
+    status
+  });
 
   if (!walletSnapshot?.isSignedIn)
     return (

@@ -75,7 +75,7 @@ const WalletDashboard = memo(function WalletDashboard({
   const supportedNetworkNames = MULTICHAIN_WALLET_CHAINS.map((chain) => chain.name).join(", ");
   const activeBalance =
     walletSnapshot?.usdcBalance ||
-    (walletSnapshot?.balanceStatus === "loading" ? "Syncing…" : "0.00 USDC");
+    (walletSnapshot?.balanceStatus === "loading" ? "Syncing…" : "Balance unavailable");
   const copyAddress = useCallback(async () => {
     if (!address || !navigator?.clipboard) return;
     try {
@@ -147,7 +147,7 @@ const WalletDashboard = memo(function WalletDashboard({
 
       <section className="balance-hero">
         <div className="balance-copy">
-          <span>Total balance</span>
+          <span>USDC balance</span>
           <strong>{activeBalance}</strong>
           <div className="balance-meta" role="note">
             <span className="environment-status">

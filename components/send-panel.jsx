@@ -1,3 +1,4 @@
+import { useAgentTransaction } from "../lib/use-agent-transaction";
 import { BrowserProvider, Contract, formatUnits, parseUnits } from "ethers";
 import { useMemo, useRef, useState } from "react";
 import { isAddress } from "viem";
@@ -108,7 +109,9 @@ export default function SendUsdcPanel({
   walletSnapshot,
   onActivitySaved,
   onActivityUpdated,
-  copilotAction
+  copilotAction,
+  agentController,
+  onAgentState
 }) {
   const { connector } = useAccount();
   const chainId = useChainId();
@@ -338,6 +341,20 @@ export default function SendUsdcPanel({
       actionLock.current = false;
     }
   };
+
+  useAgentTransaction({
+    controller: agentController,
+    actionId: copilotAction?.id,
+    ready: Boolean(estimate && !totalExceedsBalance && !result?.hash && status === "ready"),
+    busy,
+    review: estimate,
+    identity: reviewIdentity,
+    prepare: handleReview,
+    confirm: handleSend,
+    onState: onAgentState,
+    error,
+    status
+  });
 
   if (!isSignedIn) {
     return (

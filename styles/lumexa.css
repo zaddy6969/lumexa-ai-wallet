@@ -4054,24 +4054,24 @@ select {
   }
 }
 
-/* Midnight Ledger */
+/* Royal palette */
 
 :root,
 [data-wallet-theme="dark"] {
   color-scheme: dark;
-  --page: #020b18;
-  --surface: #061326;
-  --surface-subtle: #0a1a31;
-  --surface-raised: #10233e;
-  --text: #f5f8ff;
-  --text-soft: #aab9d0;
-  --text-faint: #7186a5;
-  --line: #1d3858;
-  --line-strong: #2b527a;
-  --accent: #1261ff;
-  --accent-hover: #2d75ff;
-  --accent-soft: rgb(18 97 255 / 16%);
-  --accent-text: #7fb0ff;
+  --page: #08070c;
+  --surface: #111016;
+  --surface-subtle: #19161f;
+  --surface-raised: #211b2b;
+  --text: #f5f2fa;
+  --text-soft: #b9b1c5;
+  --text-faint: #9990a6;
+  --line: #2c2635;
+  --line-strong: #41324f;
+  --accent: #783de8;
+  --accent-hover: #8b50f3;
+  --accent-soft: rgb(120 61 232 / 14%);
+  --accent-text: #bc98ff;
   --success: #55deb2;
   --success-soft: rgb(35 184 137 / 14%);
   --warning: #f5b84c;
@@ -4087,19 +4087,19 @@ select {
 
 [data-wallet-theme="light"] {
   color-scheme: light;
-  --page: #eaf1fa;
+  --page: #faf8fd;
   --surface: #ffffff;
-  --surface-subtle: #f4f7fb;
+  --surface-subtle: #f5f1fa;
   --surface-raised: #ffffff;
-  --text: #081a31;
-  --text-soft: #52637b;
-  --text-faint: #75849a;
-  --line: #d9e2ee;
-  --line-strong: #c4d0df;
-  --accent: #0b5cf4;
-  --accent-hover: #064bd1;
-  --accent-soft: #e8f0ff;
-  --accent-text: #084ac5;
+  --text: #21162e;
+  --text-soft: #685b76;
+  --text-faint: #786b84;
+  --line: #e8e0ef;
+  --line-strong: #d4c6e2;
+  --accent: #6925db;
+  --accent-hover: #551bb7;
+  --accent-soft: #eee5fc;
+  --accent-text: #6020c6;
   --success: #087b59;
   --success-soft: #e7f7f1;
   --warning: #9b6411;
@@ -4270,9 +4270,9 @@ body {
 
 .sidebar nav button.is-active {
   border-color: color-mix(in srgb, var(--accent) 82%, white 8%);
-  background: linear-gradient(135deg, #1670ff, #0748ca);
+  background: linear-gradient(135deg, #8240ec, #6020c6);
   color: #ffffff;
-  box-shadow: 0 10px 24px rgb(0 79 232 / 24%);
+  box-shadow: 0 10px 24px rgb(101 36 212 / 20%);
 }
 
 .sidebar nav button > span {

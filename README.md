@@ -1,6 +1,6 @@
 # Lumexa AI Wallet
 
-A self-custodial wallet interface for **Arc Mainnet**: USDC payments, payment requests, Circle App Kit swaps and CCTP bridges, with local wallet assistance that prepares actions for review.
+A self-custodial wallet interface for **Arc Mainnet**: USDC payments, payment requests, Circle App Kit swaps and CCTP bridges, with model-backed AI assistance and explicit transaction reviews.
 
 - **App:** https://lumexa-aiwallet.vercel.app
 - **Live network check:** https://lumexa-aiwallet.vercel.app/network
@@ -37,7 +37,7 @@ Recent activity falls back to a bounded RPC scan of Arc's USDC system transfer e
 - `/send`, `/receive` — USDC transfers and EIP-681 payment requests
 - `/swap`, `/bridge` — live Circle App Kit quotes and wallet-approved execution
 - `/activity` — recent public activity and locally submitted actions
-- `/assistant` — local wallet explanations and prepared actions
+- `/assistant` — real AI chat, wallet context, and in-chat transaction reviews
 - `/network` — public live chain ID, latest block freshness, and USDC decimals check
 - `/privacy`, `/terms` — product disclosures
 
@@ -61,7 +61,10 @@ A Reown project ID is optional for WalletConnect; browser wallets and Safe do no
 
 - Every state-changing transaction requires review and a connected-wallet signature.
 - The assistant cannot sign. Its actions are validated again by the transaction panels.
-- Common wallet questions run in the browser. Cloud AI is off until explicitly enabled and requires a server-configured provider.
+- AI chat uses Vercel AI SDK `ToolLoopAgent` through AI Gateway (default `openai/gpt-6-sol`). On Vercel, the SDK obtains runtime OIDC authentication; local development needs `AI_GATEWAY_API_KEY` or Vercel OIDC. The linked team must have AI Gateway access/credits.
+- Users opt in before messages, recent conversation, balances and activity summaries reach the model. User-entered addresses are included so tools can prepare the correct recipient. No private keys are handled by the assistant. Provider errors are visible; chat never substitutes scripted responses.
+- A model tool only prepares an action. The existing Send/Swap/Bridge panel loads a live review inside chat. An explicit “yes” or confirmation button opens wallet signing for that review. Reviews expire after 60 seconds, edits invalidate them, and repeated chat confirmations cannot replay the same review. Wallet signatures are always required.
+- The assistant supports balances, activity, Send, Receive, Swap, Bridge, network switching and navigation. It does not execute arbitrary calldata or schedule autonomous transfers.
 - Cloud requests redact full addresses and transaction hashes from model input. Never paste secrets into chat.
 - App Kit uses its permissionless client path; no Circle secret key is shipped to the browser.
 - Public APIs validate inputs, bound work, enforce same-origin writes, and use best-effort per-instance rate limits.
@@ -73,7 +76,7 @@ A Reown project ID is optional for WalletConnect; browser wallets and Safe do no
 pnpm check
 ```
 
-The check runs formatting, TypeScript, ESLint, 21 tests in each of mainnet and testnet, the critical production dependency gate, and a production build. Tests cover precise amounts, gas reserves, stale reviews, account/network changes, AI action validation, privacy redaction, and bridge checkpoints. They do not sign real transactions.
+The check runs formatting, TypeScript, ESLint, the test suite in each of mainnet and testnet, the critical production dependency gate, and a production build. Tests cover precise amounts, gas reserves, stale reviews, account/network changes, AI action validation, privacy redaction, and bridge checkpoints. They do not sign real transactions.
 
 The existing Vercel project builds from GitHub. Production explicitly selects mainnet in `next.config.mjs`, so a legacy testnet environment variable cannot silently publish a testnet wallet. Use a separate preview for testnet work. Network and token overrides remain public build-time configuration: only use verified official values.
 

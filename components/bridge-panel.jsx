@@ -1,3 +1,4 @@
+import { useAgentTransaction } from "../lib/use-agent-transaction";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount, useChainId, usePublicClient, useSwitchChain } from "wagmi";
@@ -125,13 +126,19 @@ function resultState(result) {
   return "Submitted";
 }
 
-export default function BridgePanel({ walletSnapshot, onActivitySaved, copilotAction }) {
+export default function BridgePanel({
+  walletSnapshot,
+  onActivitySaved,
+  copilotAction,
+  agentController,
+  onAgentState
+}) {
   const { connector } = useAccount();
   const chainId = useChainId();
   const { switchChainAsync, isPending: switching } = useSwitchChain();
   const storageKey = recoveryKey(ARC_NETWORK_MODE, walletSnapshot?.address);
   const [restored] = useState(() => {
-    if (typeof window === "undefined") return null;
+    if (copilotAction || typeof window === "undefined") return null;
     try {
       return parseCheckpoint(
         localStorage.getItem(storageKey),
@@ -172,12 +179,13 @@ export default function BridgePanel({ walletSnapshot, onActivitySaved, copilotAc
     balance.status === "ready" && Number(amount || 0) > Number(balance.value || 0) + 0.0000001;
 
   useEffect(() => {
-    if (!OPTIONS.some((item) => item.id === chainId) || busy || quote || result) return;
+    if (copilotAction || !OPTIONS.some((item) => item.id === chainId) || busy || quote || result)
+      return;
     // The connector chain is an external wallet state source, not derived React state.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSourceId(chainId);
     setDestinationId((current) => (current === chainId ? destinationFor(chainId) : current));
-  }, [chainId, busy, quote, result]);
+  }, [chainId, busy, quote, result, copilotAction]);
 
   useEffect(() => {
     let cancelled = false;
@@ -401,6 +409,20 @@ export default function BridgePanel({ walletSnapshot, onActivitySaved, copilotAc
   };
 
   const handleBridge = () => executeBridge(false);
+  useAgentTransaction({
+    controller: agentController,
+    actionId: copilotAction?.id,
+    ready: Boolean(quote && canReview && !insufficient && !result && status === "ready"),
+    busy,
+    review: quote?.review,
+    identity: reviewIdentity,
+    prepare: handleReview,
+    confirm: handleBridge,
+    onState: onAgentState,
+    error,
+    status
+  });
+
   const clearCompleted = () => {
     try {
       localStorage.removeItem(storageKey);

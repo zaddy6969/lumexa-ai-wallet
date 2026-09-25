@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { ThemeToggle } from "./theme-provider";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Image from "next/image";
 import { useEffect, useState } from "react";
@@ -51,19 +53,32 @@ export default function WalletLoginScreen({ providerError = "", providerUnavaila
             <small>AI Wallet</small>
           </div>
         </div>
-        <span className="environment-pill">
-          <i aria-hidden="true" /> {arcActiveChain.name}
-        </span>
+        <div className="login-topbar-actions">
+          <span className="environment-pill">
+            <i aria-hidden="true" /> {arcActiveChain.name}
+          </span>
+          <ThemeToggle />
+        </div>
       </header>
 
       <section className="login-hero">
         <div className="login-copy">
-          <span className="eyebrow">Self-custodial USDC wallet</span>
-          <h1>Move USDC with confidence.</h1>
+          <span className="eyebrow">YOUR MONEY. YOUR NEXT MOVE.</span>
+          <h1>
+            A smarter wallet.
+            <br />
+            <em>Entirely yours.</em>
+          </h1>
           <p>
-            Send, swap, and bridge across Arc and supported networks—with every action reviewed
-            before your wallet signs.
+            Send, swap and bridge on Arc. Tell Lumexa what you have in mind, review the details, and
+            make your move.
           </p>
+          <div className="login-hero-actions">
+            <Link className="button button-secondary" href="/assistant">
+              Meet your AI assistant <span>↗</span>
+            </Link>
+            <span>Built on Arc · Powered by USDC</span>
+          </div>
           <div className="login-feature-grid">
             {FEATURES.map((feature) => (
               <div key={feature.title}>
@@ -88,7 +103,7 @@ export default function WalletLoginScreen({ providerError = "", providerUnavaila
               sizes="68px"
             />
           </div>
-          <span className="eyebrow">Secure access</span>
+          <span className="eyebrow">YOUR WALLET STARTS HERE</span>
           <h2 id="connect-wallet-heading">
             {mainnetLocked ? "Mainnet setup required" : "Connect your wallet"}
           </h2>

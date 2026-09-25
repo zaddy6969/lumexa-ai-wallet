@@ -1,4 +1,10 @@
-import { connectorsForWallets, lightTheme, RainbowKitProvider } from "@rainbow-me/rainbowkit";
+import { useTheme } from "./theme-provider";
+import {
+  connectorsForWallets,
+  lightTheme,
+  darkTheme,
+  RainbowKitProvider
+} from "@rainbow-me/rainbowkit";
 import { injectedWallet, safeWallet, walletConnectWallet } from "@rainbow-me/rainbowkit/wallets";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Component, useMemo, useState } from "react";
@@ -114,15 +120,20 @@ function createWalletConfig() {
   });
 }
 
-const rainbowTheme = lightTheme({
-  accentColor: "#5568e8",
+const themeOptions = {
+  accentColor: "#7435e8",
   accentColorForeground: "#ffffff",
   borderRadius: "large",
   fontStack: "system",
   overlayBlur: "small"
-});
+};
 
 export default function AppProviders({ children }) {
+  const { theme } = useTheme();
+  const rainbowTheme = useMemo(
+    () => (theme === "dark" ? darkTheme(themeOptions) : lightTheme(themeOptions)),
+    [theme]
+  );
   const [queryClient] = useState(
     () =>
       new QueryClient({

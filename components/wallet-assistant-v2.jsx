@@ -1,86 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ARC_NETWORK_MODE } from "../lib/arc-chain";
-import { resolveNaturalWalletAgent } from "../lib/natural-wallet-agent";
-import {
-  generateLocalAssistantResponse,
-  normalizePreparedWalletAction
-} from "../lib/wallet-copilot";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ARC_NETWORK_MODE, arcActiveChain } from "../lib/arc-chain";
+import { confirmationIntent } from "../lib/agent-confirmation.mjs";
+import { normalizePreparedWalletAction } from "../lib/wallet-copilot";
 import { FeatureIcon } from "./wallet-sidebar";
 
-const THREAD_KEY = `lumexa-agent-thread-v3:${ARC_NETWORK_MODE}`;
-const LAST_ACTION_KEY = `lumexa-agent-last-action-v3:${ARC_NETWORK_MODE}`;
-
+const SendPanel = dynamic(() => import("./send-panel"));
+const SwapPanel = dynamic(() => import("./swap-panel"));
+const BridgePanel = dynamic(() => import("./bridge-panel"));
+const TRANSACTIONS = new Set(["prepare_send", "prepare_swap", "prepare_bridge"]);
 function readSession(key, fallback) {
   if (typeof window === "undefined") return fallback;
   try {
-    const value = JSON.parse(window.sessionStorage.getItem(key) || "null");
-    if (Array.isArray(fallback) && !Array.isArray(value)) return fallback;
-    return value ?? fallback;
+    return JSON.parse(sessionStorage.getItem(key)) ?? fallback;
   } catch {
     return fallback;
   }
 }
-function writeSession(key, value) {
-  try {
-    window.sessionStorage.setItem(key, JSON.stringify(value));
-  } catch {}
-}
-function short(value, start = 7, end = 5) {
-  const s = String(value || "");
-  return s.length > start + end + 3 ? `${s.slice(0, start)}…${s.slice(-end)}` : s || "—";
-}
-function networkLabel(value) {
-  return (
-    {
-      arc: "Arc",
-      "ethereum-sepolia": "Ethereum Sepolia",
-      "base-sepolia": "Base Sepolia",
-      "ethereum-mainnet": "Ethereum",
-      "base-mainnet": "Base"
-    }[value] ||
-    value ||
-    ""
-  );
-}
-function actionCopy(action) {
-  const a = action?.args || {};
-  if (action?.tool === "prepare_swap")
-    return {
-      icon: "swap",
-      title: `Swap ${a.amount} ${a.tokenIn} → ${a.tokenOut}`,
-      meta: `Exact input: ${a.amount} ${a.tokenIn}`
-    };
-  if (action?.tool === "prepare_bridge")
-    return {
-      icon: "bridge",
-      title: `Bridge ${a.amount} USDC`,
-      meta: `${networkLabel(a.sourceNetwork)} → ${networkLabel(a.destinationNetwork)}`
-    };
-  if (action?.tool === "prepare_send")
-    return { icon: "send", title: `Send ${a.amount} USDC`, meta: `To ${short(a.recipient)}` };
-  return { icon: "activity", title: action?.label || "Wallet action", meta: "Ready" };
-}
-
-function Message({ message }) {
-  const assistant = message.role === "assistant";
-  return (
-    <article className={`lumexa-ai-message is-${message.role}`}>
-      <div className="lumexa-ai-avatar" aria-hidden="true">
-        {assistant ? "✦" : "Y"}
-      </div>
-      <div className="lumexa-ai-message-body">
-        <div className="lumexa-ai-message-meta">
-          <strong>{assistant ? "Lumexa" : "You"}</strong>
-          {assistant ? <span>AI Wallet Agent</span> : null}
-        </div>
-        <div className="lumexa-ai-message-text">
-          {String(message.content || "")
-            .split("\n")
-            .map((line, i) => (line ? <span key={i}>{line}</span> : <br key={i} />))}
-        </div>
-      </div>
-    </article>
-  );
+function short(value) {
+  return value ? `${value.slice(0, 6)}…${value.slice(-4)}` : "Not connected";
 }
 
 export default function WalletAssistantV2({
@@ -88,395 +26,494 @@ export default function WalletAssistantV2({
   activityItems,
   activityStatus,
   initialPrompt,
-  onWalletAction
+  onWalletAction,
+  onActivitySaved,
+  onActivityUpdated
 }) {
-  const threadKey = `${THREAD_KEY}:${walletSnapshot?.address}`;
-  const actionKey = `${LAST_ACTION_KEY}:${walletSnapshot?.address}`;
-  const [cloudEnabled, setCloudEnabled] = useState(false);
-  const [cloudAvailable, setCloudAvailable] = useState(false);
-  const requestLock = useRef(false);
-  const [messages, setMessages] = useState(() => readSession(threadKey, []));
+  const scope = `lumexa-ai-v4:${ARC_NETWORK_MODE}:${walletSnapshot?.address || "guest"}`;
+  const [enabled, setEnabled] = useState(() => readSession(`${scope}:consent`, false) === true);
+  const [messages, setMessages] = useState(() => {
+    const saved = readSession(`${scope}:thread`, []);
+    return Array.isArray(saved)
+      ? saved
+          .slice(-24)
+          .filter((m) => ["user", "assistant"].includes(m?.role) && typeof m.content === "string")
+      : [];
+  });
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [lastAction, setLastAction] = useState(() => readSession(actionKey, null));
-  const [provider, setProvider] = useState("Lumexa Agent");
-  const threadRef = useRef(null);
-  const promptRef = useRef("");
+  const [service, setService] = useState(null);
+  const [pending, setPending] = useState(null);
+  const [transaction, setTransaction] = useState({});
+  const [confirming, setConfirming] = useState(false);
+  const lock = useRef(false);
+  const controller = useRef(null);
+  const request = useRef(null);
+  const promptSeen = useRef(null);
+  const thread = useRef(null);
+  const input = useRef(null);
+  const mounted = useRef(true);
+  const onAgentState = useCallback((state) => setTransaction(state), []);
 
-  const context = useMemo(() => {
-    const assets = Array.isArray(walletSnapshot?.assets) ? walletSnapshot.assets : [];
-    const items = Array.isArray(activityItems) ? activityItems.slice(0, 8) : [];
-    return {
+  const context = useMemo(
+    () => ({
       wallet: {
         connected: Boolean(walletSnapshot?.isSignedIn),
-        chainId: walletSnapshot?.chainId || null,
-        network: walletSnapshot?.activeChainName || "",
-        onArc: Boolean(walletSnapshot?.onArc),
-        balanceStatus: walletSnapshot?.balanceStatus || "idle"
+        chainId: walletSnapshot?.chainId,
+        network: walletSnapshot?.activeChainName,
+        onArc: walletSnapshot?.onArc,
+        balanceStatus: walletSnapshot?.balanceStatus
       },
       portfolio: {
-        status: walletSnapshot?.balanceStatus || "idle",
-        assets: assets.slice(0, 8).map((a) => ({
-          symbol: a.symbol,
-          balance: a.balance,
-          balanceValue: a.balanceValue,
-          balanceLabel: a.balanceLabel,
-          name: a.name
-        }))
+        status: walletSnapshot?.balanceStatus,
+        assets: (walletSnapshot?.assets || [])
+          .slice(0, 8)
+          .map((a) => ({ symbol: a.symbol, balance: a.balance, balanceLabel: a.balanceLabel }))
       },
       activity: {
-        status: activityStatus || "idle",
-        items: items.map((item) => ({
-          type: item.type,
-          kind: item.kind,
-          amount: item.amount,
-          chain: item.chain,
-          timeLabel: item.timeLabel,
-          txHashShort: item.txHashShort,
-          status: item.status,
-          summary: item.summary,
-          counterparty: item.counterparty,
-          recipient: item.recipient,
-          metadata: item.metadata
+        status: activityStatus,
+        items: (activityItems || []).slice(0, 8).map((a) => ({
+          type: a.type,
+          amount: a.amount,
+          status: a.status,
+          kind: a.kind,
+          timeLabel: a.timeLabel
         }))
-      },
-      lastAction
-    };
-  }, [activityItems, activityStatus, lastAction, walletSnapshot]);
+      }
+    }),
+    [walletSnapshot, activityItems, activityStatus]
+  );
 
   useEffect(() => {
-    writeSession(threadKey, messages.slice(-30));
-  }, [messages, threadKey]);
-  useEffect(() => {
-    if (lastAction) writeSession(actionKey, lastAction);
-  }, [lastAction, actionKey]);
-  useEffect(() => {
-    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, loading]);
-  useEffect(() => {
-    fetch("/api/ai", { cache: "no-store" })
+    mounted.current = true;
+    const abort = new AbortController();
+    fetch("/api/ai", { cache: "no-store", signal: abort.signal })
       .then((r) => r.json())
-      .then((p) => {
-        setCloudAvailable(Boolean(p?.cloudAvailable));
-        setProvider(p?.model || "Cloud AI");
-      })
+      .then(setService)
       .catch(() => {});
+    return () => {
+      mounted.current = false;
+      abort.abort();
+      request.current?.abort();
+    };
   }, []);
-
-  async function ask(input) {
-    const trimmed = String(input || "")
-      .trim()
-      .slice(0, 800);
-    if (!trimmed || requestLock.current) return;
-    requestLock.current = true;
-    const history = messages.slice(-12);
-    setMessages((current) => [...current.slice(-28), { role: "user", content: trimmed }]);
-    setQuestion("");
-    setLoading(true);
-    setError("");
+  useEffect(() => {
     try {
-      let payload = resolveNaturalWalletAgent({ question: trimmed, messages: history, context });
-      if (!payload && cloudEnabled && cloudAvailable) {
-        const response = await fetch("/api/ai", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: AbortSignal.timeout(30_000),
-          body: JSON.stringify({
-            question: trimmed,
-            messages: history,
-            context,
-            cloudConsent: true
-          })
-        });
-        payload = await response.json().catch(() => ({}));
-        if (!response.ok || !payload?.answer)
-          throw new Error(payload?.error || "Lumexa could not answer that request.");
-      }
-      payload ||= generateLocalAssistantResponse({ question: trimmed, messages: history, context });
-      setMessages((current) => [
-        ...current.slice(-29),
-        { role: "assistant", content: payload.answer }
-      ]);
-      const prepared = Array.isArray(payload.actions)
-        ? payload.actions.find((a) =>
-            [
-              "prepare_send",
-              "prepare_swap",
-              "prepare_bridge",
-              "switch_network",
-              "open_wallet_view"
-            ].includes(a?.tool)
-          )
-        : null;
-      const validated = prepared ? normalizePreparedWalletAction(prepared) : null;
-      if (validated) {
-        if (["prepare_send", "prepare_swap", "prepare_bridge"].includes(prepared.tool))
-          setLastAction(validated);
-        window.setTimeout(() => onWalletAction?.(validated), 120);
-      }
-      setProvider(
-        payload?.mode === "ai-copilot"
-          ? payload?.notice?.replace("Lumexa Agent · ", "") || provider
-          : "Lumexa Agent"
-      );
+      sessionStorage.setItem(`${scope}:thread`, JSON.stringify(messages.slice(-24)));
+    } catch {}
+  }, [messages, scope]);
+  useEffect(() => {
+    thread.current?.scrollTo({ top: thread.current.scrollHeight, behavior: "smooth" });
+  }, [messages, loading, pending]);
+
+  function addMessage(role, content, model) {
+    setMessages((current) => [...current.slice(-29), { role, content, model }]);
+  }
+  function changeConsent(value) {
+    setEnabled(value);
+    try {
+      sessionStorage.setItem(`${scope}:consent`, JSON.stringify(value));
+    } catch {}
+    if (value) input.current?.focus();
+  }
+  async function confirmTransaction() {
+    if (lock.current || confirming) return;
+    setError("");
+    if (!pending || !controller.current) {
+      setError("There is no transaction ready to confirm. Tell me what you want to do first.");
+      return;
+    }
+    lock.current = true;
+    setConfirming(true);
+    try {
+      await controller.current.confirm();
     } catch (e) {
-      setError(e?.message || "Lumexa could not complete that request.");
+      setError(e?.message || "Unable to confirm this review.");
     } finally {
-      requestLock.current = false;
-      setLoading(false);
+      lock.current = false;
+      if (mounted.current) setConfirming(false);
     }
   }
-
-  useEffect(() => {
-    if (!initialPrompt?.id || !initialPrompt?.text || promptRef.current === initialPrompt.id)
+  function cancelTransaction() {
+    if (transaction.busy || confirming) {
+      setError(
+        "A wallet request is in progress. Reject it in your wallet to stop signing; submitted transactions cannot be cancelled here."
+      );
       return;
-    promptRef.current = initialPrompt.id;
-    void ask(initialPrompt.text);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPrompt?.id]);
-
-  const clear = () => {
-    setMessages([]);
-    setLastAction(null);
+    }
+    setPending(null);
+    setTransaction({});
+    controller.current = null;
     setError("");
+    addMessage("assistant", "Review dismissed. I have not initiated another transaction.");
+  }
+  async function ask(value) {
+    const message = String(value || "").trim();
+    if (!message || loading || lock.current || confirming) return;
+    const intent = confirmationIntent(message);
+    if (intent) {
+      setQuestion("");
+      addMessage("user", message);
+      if (intent === "confirm") await confirmTransaction();
+      else cancelTransaction();
+      return;
+    }
+    if (!enabled) {
+      setError("Enable AI chat to send your message to the model.");
+      return;
+    }
+    if (transaction.busy) {
+      setError("Finish the current wallet request before starting another action.");
+      return;
+    }
+    // Any new instruction invalidates the current review before contacting the model.
+    setPending(null);
+    setTransaction({});
+    controller.current = null;
+    lock.current = true;
+    setLoading(true);
+    setError("");
+    setQuestion("");
+    addMessage("user", message);
+    const abort = new AbortController();
+    request.current = abort;
+    const timer = setTimeout(() => abort.abort(), 50_000);
     try {
-      sessionStorage.removeItem(threadKey);
-      sessionStorage.removeItem(actionKey);
-    } catch {}
-  };
-  const assets = Array.isArray(walletSnapshot?.assets) ? walletSnapshot.assets.length : 0;
-  const latest = Array.isArray(activityItems) ? activityItems[0] : null;
+      const response = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: abort.signal,
+        body: JSON.stringify({
+          question: message,
+          messages: messages.slice(-12),
+          context,
+          cloudConsent: true
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.answer || payload.mode !== "ai-copilot")
+        throw new Error(payload.error || "The AI model is unavailable. Please retry.");
+      if (!mounted.current) return;
+      addMessage("assistant", payload.answer, payload.model);
+      const action = normalizePreparedWalletAction(payload.actions?.[0]);
+      if (action && TRANSACTIONS.has(action.tool)) {
+        if (!walletSnapshot?.isSignedIn)
+          addMessage(
+            "assistant",
+            "Connect your wallet to prepare this transaction, then ask me again."
+          );
+        else setPending({ ...action, owner: walletSnapshot.address });
+      } else if (action) await onWalletAction?.(action);
+      setService((current) => ({ ...current, model: payload.model, verified: true }));
+    } catch (e) {
+      if (mounted.current)
+        setError(
+          e.name === "AbortError"
+            ? "The model took too long to respond. Please retry. No transaction was initiated."
+            : e.message
+        );
+    } finally {
+      clearTimeout(timer);
+      request.current = null;
+      lock.current = false;
+      if (mounted.current) setLoading(false);
+    }
+  }
+  useEffect(() => {
+    if (!initialPrompt?.id || promptSeen.current === initialPrompt.id) return;
+    promptSeen.current = initialPrompt.id;
+    // Leave externally suggested text for the user to send.
+    setQuestion(initialPrompt.text || "");
+  }, [initialPrompt]);
 
+  const Panel =
+    pending?.tool === "prepare_send"
+      ? SendPanel
+      : pending?.tool === "prepare_swap"
+        ? SwapPanel
+        : BridgePanel;
+  const connected = walletSnapshot?.isSignedIn;
+  const busy = loading || confirming || transaction.busy;
   return (
-    <section className="lumexa-ai-workspace">
-      <section className="lumexa-ai-context-panel" aria-label="Wallet context">
-        <div className="lumexa-ai-identity">
-          <span className="lumexa-ai-logo">✦</span>
+    <section className="agent-studio">
+      <aside className="agent-sidebar">
+        <div className="agent-identity">
+          <span className="agent-symbol">✦</span>
           <div>
-            <strong>Lumexa Agent</strong>
-            <small>Natural-language wallet intelligence</small>
-          </div>
-          <span className="lumexa-ai-live is-ready">
-            <i />
-            Live
-          </span>
-        </div>
-        <div className="lumexa-ai-context-grid">
-          <article>
-            <span>Assets</span>
-            <strong>{assets}</strong>
-            <small>supported</small>
-          </article>
-          <article>
-            <span>Network</span>
-            <strong>{walletSnapshot?.activeChainName || "Wallet"}</strong>
-            <small>Chain {walletSnapshot?.chainId || "—"}</small>
-          </article>
-          <article>
-            <span>Activity</span>
-            <strong>{Array.isArray(activityItems) ? activityItems.length : 0}</strong>
-            <small>recent items</small>
-          </article>
-          <article>
-            <span>Wallet</span>
-            <strong>{short(walletSnapshot?.address)}</strong>
-            <small>self-custodial</small>
-          </article>
-        </div>
-        <div className="lumexa-ai-rail-section">
-          <div className="lumexa-ai-rail-title">
-            <strong>Try normal English</strong>
-            <span>No command syntax</span>
-          </div>
-          <div className="lumexa-ai-capability-list">
-            <article>
-              <span>
-                <FeatureIcon name="swap" />
-              </span>
-              <div>
-                <strong>“Swap 25 USDC to EURC”</strong>
-                <small>Fills exact amount + pair</small>
-              </div>
-            </article>
-            <article>
-              <span>
-                <FeatureIcon name="bridge" />
-              </span>
-              <div>
-                <strong>“Bridge 20 USDC from Arc to Base”</strong>
-                <small>Fills amount + route</small>
-              </div>
-            </article>
-            <article>
-              <span>
-                <FeatureIcon name="send" />
-              </span>
-              <div>
-                <strong>“Send 5 USDC to 0x…”</strong>
-                <small>Fills amount + recipient</small>
-              </div>
-            </article>
+            <strong>Lumexa</strong>
+            <small>Your wallet assistant</small>
           </div>
         </div>
-        {lastAction ? (
-          <div className="lumexa-ai-rail-section is-latest">
-            <div className="lumexa-ai-rail-title">
-              <strong>Agent memory</strong>
-              <span>Session</span>
+        <span className={`agent-service ${service?.verified ? "is-online" : ""}`}>
+          <i />
+          {service?.verified
+            ? "AI connected"
+            : service?.configured
+              ? "AI ready to connect"
+              : service
+                ? "AI connection required"
+                : "Checking AI connection…"}
+        </span>
+        <div className="agent-context">
+          <span>WALLET CONTEXT</span>
+          <dl>
+            <div>
+              <dt>Account</dt>
+              <dd>{short(walletSnapshot?.address)}</dd>
+            </div>
+            <div>
+              <dt>Network</dt>
+              <dd>{walletSnapshot?.activeChainName || arcActiveChain.name}</dd>
+            </div>
+            <div>
+              <dt>Balances</dt>
+              <dd>
+                {walletSnapshot?.balanceStatus === "ready"
+                  ? "Loaded"
+                  : connected
+                    ? "Syncing"
+                    : "Connect wallet"}
+              </dd>
+            </div>
+          </dl>
+        </div>
+        <div className="agent-capabilities">
+          <span>WHAT I CAN HELP WITH</span>
+          {[
+            { icon: "send", title: "Send & receive", copy: "USDC payments on Arc" },
+            { icon: "swap", title: "Swap tokens", copy: "Live quotes and minimum output" },
+            { icon: "bridge", title: "Bridge USDC", copy: "Arc, Ethereum and Base" },
+            {
+              icon: "activity",
+              title: "Understand your wallet",
+              copy: "Balances and recent activity"
+            }
+          ].map((item) => (
+            <div key={item.title}>
+              <FeatureIcon name={item.icon} />
+              <p>
+                <strong>{item.title}</strong>
+                <small>{item.copy}</small>
+              </p>
+            </div>
+          ))}
+        </div>
+        <div className="agent-ownership">
+          <FeatureIcon name="wallet" />
+          <strong>You stay in control.</strong>
+          <p>Lumexa prepares. You review. Your wallet signs.</p>
+        </div>
+      </aside>
+      <div className="agent-conversation">
+        <header className="agent-chat-header">
+          <div>
+            <span className="eyebrow">LUMEXA AI</span>
+            <h2>Let’s make your next move.</h2>
+          </div>
+          <button
+            type="button"
+            className="button button-secondary"
+            disabled={busy}
+            onClick={() => {
+              setMessages([]);
+              setPending(null);
+              setTransaction({});
+              setError("");
+            }}
+          >
+            New chat <span aria-hidden="true">＋</span>
+          </button>
+        </header>
+        {!enabled ? (
+          <div className="agent-consent">
+            <div>
+              <strong>A real conversation, connected to your wallet.</strong>
+              <p>
+                AI chat sends your messages, recent conversation, balances and activity summary to
+                Vercel AI Gateway and its model provider. Addresses you type are included. Never
+                share recovery phrases or private keys.
+              </p>
             </div>
             <button
-              className="lumexa-ai-latest-card"
+              className="button button-primary"
               type="button"
-              onClick={() => ask("Repeat the same action")}
+              onClick={() => changeConsent(true)}
             >
-              <span className="lumexa-ai-latest-icon">
-                <FeatureIcon name={actionCopy(lastAction).icon} />
-              </span>
-              <span>
-                <strong>{actionCopy(lastAction).title}</strong>
-                <small>Say “repeat” to reuse it</small>
-              </span>
-              <b>→</b>
+              Enable AI chat <span>→</span>
             </button>
           </div>
-        ) : null}
-        {latest ? (
-          <div className="lumexa-ai-privacy-note">
-            <span>✓</span>
-            <div>
-              <strong>Latest activity loaded</strong>
-              <small>
-                {latest.type || "Transaction"} {latest.amount ? `· ${latest.amount}` : ""}
-              </small>
-            </div>
-          </div>
-        ) : null}
-      </section>
-
-      <div className="lumexa-ai-chat-panel">
-        <header className="lumexa-ai-chat-head">
-          <div>
-            <span className="lumexa-ai-chat-orb">✦</span>
-            <div>
-              <strong>Ask Lumexa anything</strong>
-              <small>
-                {loading
-                  ? "Understanding your request…"
-                  : cloudEnabled && cloudAvailable
-                    ? provider
-                    : "Local wallet assistant"}
-              </small>
-            </div>
-          </div>
-          {messages.length ? (
-            <div className="lumexa-ai-chat-tools">
-              <button type="button" onClick={clear}>
-                New chat
-              </button>
-            </div>
-          ) : null}
-        </header>
-        <div className="lumexa-ai-consent-card">
-          <div className="lumexa-ai-consent-copy">
-            <small className="lumexa-ai-mode-label">Local-first wallet assistant</small>
-            <strong>Speak normally. Lumexa turns intent into wallet actions.</strong>
+        ) : (
+          <div className="agent-model-line">
             <span>
-              Ask what Arc is, learn how Lumexa works, or tell it to send, swap, bridge, change an
-              amount, or repeat your last prepared action.
+              {service?.model || "AI model"} <b>·</b> Conversation stays in this browser session
             </span>
-            <div className="lumexa-ai-mode-badges">
-              <span>Exact values</span>
-              <span>Session memory</span>
-              <span>Wallet signs</span>
-            </div>
-            <p>Transaction commands and wallet explanations run in your browser.</p>
-            {cloudAvailable ? (
-              <label className="lumexa-ai-consent-toggle">
-                <input
-                  type="checkbox"
-                  checked={cloudEnabled}
-                  onChange={(event) => setCloudEnabled(event.target.checked)}
-                />
-                <span>
-                  Use {provider} for other questions. Sends your question and a minimized wallet
-                  summary.
-                </span>
-              </label>
-            ) : (
-              <small>Cloud AI is not configured. Local assistance is available.</small>
-            )}
+            <button type="button" disabled={busy} onClick={() => changeConsent(false)}>
+              Turn off AI
+            </button>
           </div>
-        </div>
-        <div className="lumexa-ai-thread" ref={threadRef} aria-live="polite">
-          {!messages.length && !loading ? (
-            <div className="lumexa-ai-starter">
-              <span className="lumexa-ai-starter-mark">✦</span>
-              <h3>What do you want to do?</h3>
+        )}
+        <div className="agent-thread" ref={thread} aria-live="polite" aria-busy={loading}>
+          {!messages.length ? (
+            <div className="agent-empty">
+              <span className="agent-empty-icon">✦</span>
+              <h3>Your words. Your wallet.</h3>
               <p>
-                No special commands. Try “What is Arc?”, “Swap fifty USDC to euros”, or “How does
-                Lumexa work?”
+                Ask a question or tell Lumexa what you want to do. Every transaction starts with a
+                review.
               </p>
-              <div className="lumexa-ai-starter-grid">
-                <button onClick={() => ask("What is Arc and why is Lumexa built on it?")}>
-                  <span>
-                    <FeatureIcon name="portfolio" />
-                  </span>
-                  <strong>Explain Arc</strong>
-                  <small>New-user guide</small>
-                </button>
-                <button onClick={() => ask("How do I swap using Lumexa?")}>
-                  <span>
-                    <FeatureIcon name="swap" />
-                  </span>
-                  <strong>How to swap</strong>
-                  <small>Natural language</small>
-                </button>
+              <div className="agent-prompts">
+                {[
+                  {
+                    icon: "portfolio",
+                    title: "Understand my balance",
+                    text: "Explain my current balances and what I need for gas on Arc."
+                  },
+                  {
+                    icon: "swap",
+                    title: "Make a swap",
+                    text: "I want to swap USDC to EURC. Help me prepare it."
+                  },
+                  {
+                    icon: "bridge",
+                    title: "Move across networks",
+                    text: "Help me bridge USDC from Arc to Base."
+                  },
+                  { icon: "send", title: "Send a payment", text: "Help me send USDC on Arc." }
+                ].map((p) => (
+                  <button
+                    key={p.title}
+                    disabled={!enabled || loading}
+                    onClick={() => void ask(p.text)}
+                  >
+                    <FeatureIcon name={p.icon} />
+                    <strong>{p.title}</strong>
+                    <span>↗</span>
+                  </button>
+                ))}
               </div>
             </div>
           ) : null}
-          {messages.map((message, index) => (
-            <Message key={`${message.role}-${index}`} message={message} />
-          ))}
-          {loading ? (
-            <article className="lumexa-ai-thinking">
-              <span className="loading-spinner" />
+          {messages.map((message, i) => (
+            <article className={`agent-message is-${message.role}`} key={i}>
+              <span className="agent-message-avatar">
+                {message.role === "assistant" ? "✦" : "Y"}
+              </span>
               <div>
-                <strong>Understanding intent</strong>
-                <small>Extracting exact amount, asset, route and wallet context…</small>
+                <span className="agent-message-author">
+                  {message.role === "assistant" ? "Lumexa" : "You"}
+                  {message.model ? <small>AI</small> : null}
+                </span>
+                <p>{message.content}</p>
               </div>
             </article>
+          ))}
+          {loading ? (
+            <div className="agent-thinking" role="status">
+              <span className="loading-spinner" /> Lumexa is thinking and checking its tools…
+            </div>
           ) : null}
-          {error ? <div className="lumexa-ai-error">{error}</div> : null}
+          {pending && pending.owner === walletSnapshot?.address ? (
+            <section className="agent-transaction" aria-label="Prepared transaction">
+              <header>
+                <div>
+                  <span className="eyebrow">TRANSACTION REVIEW</span>
+                  <strong>
+                    {transaction.busy
+                      ? "Working with your wallet…"
+                      : transaction.ready
+                        ? "Ready for your confirmation"
+                        : transaction.status === "success"
+                          ? "Transaction complete"
+                          : "Review the details below"}
+                  </strong>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Dismiss transaction review"
+                  disabled={transaction.busy || confirming}
+                  onClick={cancelTransaction}
+                >
+                  ×
+                </button>
+              </header>
+              <Panel
+                key={pending.id}
+                walletSnapshot={walletSnapshot}
+                copilotAction={pending}
+                agentController={controller}
+                onAgentState={onAgentState}
+                onActivitySaved={onActivitySaved}
+                onActivityUpdated={onActivityUpdated}
+              />
+              <div className="agent-confirm-footer">
+                <p>
+                  {transaction.ready
+                    ? "Say “yes” in chat to confirm this transaction, or use the button below. Your wallet will ask you to sign."
+                    : transaction.status === "success"
+                      ? "Completed. Check the receipt above or in Activity."
+                      : "A current live review is required before confirmation. Each approval happens in your connected wallet."}
+                </p>
+                <button
+                  className="button button-primary"
+                  disabled={!transaction.ready || busy}
+                  onClick={() => void ask("yes")}
+                >
+                  Yes, confirm transaction <span>→</span>
+                </button>
+              </div>
+            </section>
+          ) : null}
+          {error ? (
+            <div className="agent-error" role="alert">
+              <strong>Something needs your attention</strong>
+              <p>{error}</p>
+            </div>
+          ) : null}
         </div>
         <form
-          className="lumexa-ai-composer"
+          className="agent-composer"
           onSubmit={(e) => {
             e.preventDefault();
             void ask(question);
           }}
         >
-          <div className="lumexa-ai-input-wrap">
-            <span className="lumexa-ai-input-context">
-              ✦ <b>Natural language</b>
-              <small>{walletSnapshot?.activeChainName || "Arc"}</small>
-            </span>
+          <label className="sr-only" htmlFor="agent-message">
+            Message Lumexa
+          </label>
+          <div>
             <textarea
+              id="agent-message"
+              ref={input}
+              rows={2}
+              maxLength={2000}
               value={question}
+              disabled={!enabled || busy}
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   void ask(question);
                 }
               }}
-              placeholder="Ask or tell Lumexa what to do…"
-              rows={1}
+              placeholder={
+                pending
+                  ? "Type yes to confirm, cancel, or describe a change…"
+                  : "Ask Lumexa, or describe your next transaction…"
+              }
             />
-            <button type="submit" disabled={!question.trim() || loading} aria-label="Send">
+            <button
+              type="submit"
+              aria-label="Send message"
+              disabled={!enabled || !question.trim() || busy}
+            >
               ↑
             </button>
           </div>
+          <small>
+            <span>✦ {arcActiveChain.name}</span>
+            <span>AI can make mistakes. Check every transaction.</span>
+          </small>
         </form>
       </div>
     </section>
