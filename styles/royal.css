@@ -904,3 +904,29 @@ textarea {
 .agent-transaction .transaction-actions {
   flex-wrap: wrap;
 }
+
+/* Keep the conversation composer in view on desktop. */
+.agent-studio {
+  height: max(580px, calc(100svh - 280px));
+}
+.agent-conversation {
+  min-height: 0;
+}
+.agent-thread {
+  min-height: 160px;
+}
+.nav-connect {
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .agent-studio {
+    height: max(620px, calc(100svh - 220px));
+  }
+  .nav-connect {
+    min-height: 36px;
+    font-size: 11px;
+    padding: 0 10px;
+  }
+}

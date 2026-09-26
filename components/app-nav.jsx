@@ -1,3 +1,4 @@
+import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Image from "next/image";
 import Link from "next/link";
 import NetworkSwitcher from "./network-switcher";
@@ -85,7 +86,20 @@ export default function AppNav({
                 </svg>
               </button>
             </div>
-          ) : null}
+          ) : (
+            <ConnectButton.Custom>
+              {({ mounted, openConnectModal }) => (
+                <button
+                  className="button button-primary nav-connect"
+                  type="button"
+                  disabled={!mounted}
+                  onClick={openConnectModal}
+                >
+                  Connect wallet
+                </button>
+              )}
+            </ConnectButton.Custom>
+          )}
           <button
             type="button"
             className="mobile-menu-button"

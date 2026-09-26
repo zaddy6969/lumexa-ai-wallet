@@ -205,8 +205,14 @@ export default function WalletAssistantV2({
           );
         else setPending({ ...action, owner: walletSnapshot.address });
       } else if (action) await onWalletAction?.(action);
-      setService((current) => ({ ...current, model: payload.model, verified: true }));
+      setService((current) => ({
+        ...current,
+        model: payload.model,
+        verified: true,
+        failed: false
+      }));
     } catch (e) {
+      if (mounted.current) setService((current) => ({ ...current, failed: true, verified: false }));
       if (mounted.current)
         setError(
           e.name === "AbortError"
@@ -247,13 +253,15 @@ export default function WalletAssistantV2({
         </div>
         <span className={`agent-service ${service?.verified ? "is-online" : ""}`}>
           <i />
-          {service?.verified
-            ? "AI connected"
-            : service?.configured
-              ? "AI ready to connect"
-              : service
-                ? "AI connection required"
-                : "Checking AI connection…"}
+          {service?.failed
+            ? "AI unavailable"
+            : service?.verified
+              ? "AI connected"
+              : service?.configured
+                ? "AI ready to connect"
+                : service
+                  ? "AI connection required"
+                  : "Checking AI connection…"}
         </span>
         <div className="agent-context">
           <span>WALLET CONTEXT</span>
