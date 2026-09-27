@@ -57,11 +57,22 @@ Open http://localhost:3000. Mainnet is the default. For isolated testnet develop
 
 A Reown project ID is optional for WalletConnect; browser wallets and Safe do not require it. Keep all private keys, seed phrases, and server credentials out of `NEXT_PUBLIC_*` variables.
 
+## Free AI setup
+
+AI chat connects directly to Groq using `openai/gpt-oss-120b`, a production tool-calling model available on its Free plan. Vercel AI Gateway is not used, even if Gateway credentials remain in the deployment.
+
+1. Create a free Groq account and API key at https://console.groq.com/keys. Keep the account on the **Free** plan; do not upgrade or add billing for this setup.
+2. Add `GROQ_API_KEY` as a server-only environment variable in the existing Vercel project's **Production** and **Preview** environments. For local development, put it in ignored `.env.local`. Never paste the key into code, chat or a `NEXT_PUBLIC_*` variable.
+3. Redeploy so the new server environment takes effect. `GROQ_MODEL` is optional and defaults to `openai/gpt-oss-120b`.
+4. Open `/assistant`, enable AI chat, and send a question. The badge becomes **AI connected** only after a successful model response. `/api/ai` reports configuration presence, not account quota or model health.
+
+Groq's Free plan has shared organization limits, not unlimited use. Its published GPT-OSS 120B limits are currently 30 requests/minute, 1,000/day, 8,000 tokens/minute and 200,000/day; a tool-assisted answer can use several requests. Check https://console.groq.com/docs/rate-limits and the account's Limits page for current limits. A 429 stops the request and asks the user to retry after quota resets; there is no automatic retry or fallback to a paid provider. The provider account must stay on Free to prevent usage billing.
+
 ## Privacy and trust
 
 - Every state-changing transaction requires review and a connected-wallet signature.
 - The assistant cannot sign. Its actions are validated again by the transaction panels.
-- AI chat uses Vercel AI SDK `ToolLoopAgent` through AI Gateway (default `openai/gpt-6-sol`). On Vercel, the SDK obtains runtime OIDC authentication; local development needs `AI_GATEWAY_API_KEY` or Vercel OIDC. The linked team must have AI Gateway access/credits.
+- AI chat uses AI SDK `ToolLoopAgent` with the direct Groq provider and a server-only `GROQ_API_KEY`. Consent is renewed when moving from the previous Gateway provider to Groq.
 - Users opt in before messages, recent conversation, balances and activity summaries reach the model. User-entered addresses are included so tools can prepare the correct recipient. No private keys are handled by the assistant. Provider errors are visible; chat never substitutes scripted responses.
 - A model tool only prepares an action. The existing Send/Swap/Bridge panel loads a live review inside chat. An explicit “yes” or confirmation button opens wallet signing for that review. Reviews expire after 60 seconds, edits invalidate them, and repeated chat confirmations cannot replay the same review. Wallet signatures are always required.
 - The assistant supports balances, activity, Send, Receive, Swap, Bridge, network switching and navigation. It does not execute arbitrary calldata or schedule autonomous transfers.

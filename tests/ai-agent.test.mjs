@@ -59,9 +59,7 @@ test("unsafe model parameters cannot create an action and multiple calls cannot 
   assert.equal(actions[0].args.amount, "1");
 });
 test("AI API requires consent and reports missing configuration instead of a scripted answer", async () => {
-  const saved = Object.fromEntries(
-    ["AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN", "VERCEL"].map((key) => [key, process.env[key]])
-  );
+  const saved = Object.fromEntries(["GROQ_API_KEY"].map((key) => [key, process.env[key]]));
   for (const key of Object.keys(saved)) delete process.env[key];
   const res = {
     code: 0,
@@ -80,7 +78,7 @@ test("AI API requires consent and reports missing configuration instead of a scr
     method: "POST",
     headers: {},
     socket: { remoteAddress: "test-ai" },
-    body: { question: "Explain my balance", cloudConsent: false }
+    body: { question: "Explain my balance", cloudConsent: false, consentProvider: "groq" }
   };
   try {
     await handleWalletChat(req, res);

@@ -15,11 +15,15 @@ export default function PrivacyPage() {
         <h2>Optional AI chat</h2>
         <p>
           AI chat is off until you enable it. Messages, recent conversation, token balances and a
-          limited activity summary are then sent to Vercel AI Gateway and its selected model
-          provider. Addresses you include in a message are sent so the model can prepare the
-          requested recipient. The automatic wallet summary excludes your full wallet address and
-          full transaction hashes. Never enter private keys, recovery phrases or other secrets in
-          chat.
+          limited activity summary are then sent directly to Groq, which hosts the AI model.
+          Addresses you include in a message are sent so the model can prepare the requested
+          recipient. The automatic wallet summary excludes your full wallet address and full
+          transaction hashes. Never enter private keys, recovery phrases or other secrets in chat.
+        </p>
+        <p>
+          Groq processes AI requests under its own{" "}
+          <a href="https://console.groq.com/docs/your-data">data policy</a>. AI requests use the
+          project's server-side credential; this credential is never sent to your browser.
         </p>
         <p>
           You can turn AI chat off at any time. Model access errors are shown explicitly; the

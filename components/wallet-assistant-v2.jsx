@@ -30,7 +30,8 @@ export default function WalletAssistantV2({
   onActivitySaved,
   onActivityUpdated
 }) {
-  const scope = `lumexa-ai-v4:${ARC_NETWORK_MODE}:${walletSnapshot?.address || "guest"}`;
+  // Ask for fresh consent when changing the recipient of cloud requests.
+  const scope = `lumexa-ai-v5:groq:${ARC_NETWORK_MODE}:${walletSnapshot?.address || "guest"}`;
   const [enabled, setEnabled] = useState(() => readSession(`${scope}:consent`, false) === true);
   const [messages, setMessages] = useState(() => {
     const saved = readSession(`${scope}:thread`, []);
@@ -188,7 +189,8 @@ export default function WalletAssistantV2({
           question: message,
           messages: messages.slice(-12),
           context,
-          cloudConsent: true
+          cloudConsent: true,
+          consentProvider: "groq"
         })
       });
       const payload = await response.json().catch(() => ({}));
@@ -260,7 +262,7 @@ export default function WalletAssistantV2({
               : service?.configured
                 ? "AI ready to connect"
                 : service
-                  ? "AI connection required"
+                  ? "AI setup pending"
                   : "Checking AI connection…"}
         </span>
         <div className="agent-context">
@@ -339,8 +341,8 @@ export default function WalletAssistantV2({
               <strong>A real conversation, connected to your wallet.</strong>
               <p>
                 AI chat sends your messages, recent conversation, balances and activity summary to
-                Vercel AI Gateway and its model provider. Addresses you type are included. Never
-                share recovery phrases or private keys.
+                Groq, which runs the AI model. Addresses you type are included. Never share recovery
+                phrases or private keys.
               </p>
             </div>
             <button
@@ -354,7 +356,7 @@ export default function WalletAssistantV2({
         ) : (
           <div className="agent-model-line">
             <span>
-              {service?.model || "AI model"} <b>·</b> Conversation stays in this browser session
+              {service?.providerLabel || "Groq"} <b>·</b> Chat history saved in this browser session
             </span>
             <button type="button" disabled={busy} onClick={() => changeConsent(false)}>
               Turn off AI
