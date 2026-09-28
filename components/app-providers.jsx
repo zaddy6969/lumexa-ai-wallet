@@ -12,7 +12,7 @@ import { createConfig, http, WagmiProvider } from "wagmi";
 import {
   ARC_MAINNET_REQUESTED,
   ARC_MAINNET_READY,
-  MULTICHAIN_WALLET_CHAINS,
+  WALLET_CONNECTION_CHAINS,
   arcActiveChain,
   hasWalletConnectProjectId,
   walletConnectProjectId
@@ -71,7 +71,7 @@ function createWalletConfig() {
     );
   }
 
-  const chainsWithoutRpc = MULTICHAIN_WALLET_CHAINS.filter(
+  const chainsWithoutRpc = WALLET_CONNECTION_CHAINS.filter(
     (chain) => !chain?.rpcUrls?.default?.http?.[0]
   );
   if (chainsWithoutRpc.length) {
@@ -101,11 +101,11 @@ function createWalletConfig() {
 
   return createConfig({
     connectors,
-    chains: MULTICHAIN_WALLET_CHAINS,
+    chains: WALLET_CONNECTION_CHAINS,
     pollingInterval: 12_000,
     ssr: true,
     transports: Object.fromEntries(
-      MULTICHAIN_WALLET_CHAINS.map((chain) => [
+      WALLET_CONNECTION_CHAINS.map((chain) => [
         chain.id,
         http(chain.rpcUrls.default.http[0], {
           batch: {

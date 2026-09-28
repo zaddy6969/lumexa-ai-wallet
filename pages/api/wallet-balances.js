@@ -1,17 +1,18 @@
 import { createPublicClient, erc20Abi, formatUnits, getAddress, http, isAddress } from "viem";
 import { enforceRateLimit } from "../../lib/api-security";
 import {
-  ARC_PORTFOLIO_TOKENS,
-  ARC_USDC_ERC20_ADDRESS,
-  MULTICHAIN_WALLET_CHAINS,
-  arcTestnet
+  ARC_NETWORK_MODE,
+  arcTokensForChain,
+  isArcChain,
+  WALLET_CONNECTION_CHAINS
 } from "../../lib/arc-chain";
 import { isZeroEvmAddress } from "../../lib/wallet-validation.mjs";
+
+import { summarizeNetworkBalances } from "../../lib/wallet-balance-totals";
 
 const PRICE_CACHE = Symbol.for("lumexa.marketPriceCache");
 const PRICE_CACHE_MS = 60_000;
 const USDC_BY_CHAIN = {
-  [arcTestnet.id]: ARC_USDC_ERC20_ADDRESS,
   11155111: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
   84532: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
   1: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
@@ -55,7 +56,7 @@ async function readSpotPrice(pair) {
 }
 
 async function readMarketPrices() {
-  const needsPrices = MULTICHAIN_WALLET_CHAINS.some((chain) => !chain.testnet);
+  const needsPrices = WALLET_CONNECTION_CHAINS.some((chain) => !chain.testnet);
   if (!needsPrices) return { ethUsd: 0, btcUsd: 0, source: "disabled-on-testnet" };
 
   const cached = globalThis[PRICE_CACHE];
@@ -78,17 +79,19 @@ async function readMarketPrices() {
 }
 
 function tokenConfigForChain(chain, prices) {
-  if (chain.id === arcTestnet.id) {
-    return ARC_PORTFOLIO_TOKENS.filter((token) => token?.address).map((token) => ({
-      ...token,
-      referencePriceUsd: chain.testnet
-        ? null
-        : token.symbol === "cirBTC" && prices.btcUsd > 0
-          ? prices.btcUsd
-          : token.symbol === "EURC"
-            ? prices.eurUsd || null
-            : token.priceUsd || null
-    }));
+  if (isArcChain(chain.id)) {
+    return arcTokensForChain(chain.id)
+      .filter((token) => token?.address)
+      .map((token) => ({
+        ...token,
+        referencePriceUsd: chain.testnet
+          ? null
+          : token.symbol === "cirBTC" && prices.btcUsd > 0
+            ? prices.btcUsd
+            : token.symbol === "EURC"
+              ? prices.eurUsd || null
+              : token.priceUsd || null
+      }));
   }
 
   const usdcAddress = USDC_BY_CHAIN[chain.id] || "";
@@ -186,7 +189,8 @@ async function readNetworkBalance(chain, address, prices) {
 
   const usdcAsset = assets.find((asset) => asset.symbol === "USDC");
   if (
-    chain.id === arcTestnet.id &&
+    isArcChain(chain.id) &&
+    usdcAsset &&
     usdcAsset?.status !== "ready" &&
     nativeResult.status === "fulfilled"
   ) {
@@ -197,7 +201,7 @@ async function readNetworkBalance(chain, address, prices) {
     usdcAsset.referenceValueUsdDisplay = chain.testnet ? "Testnet token" : formatUsd(nativeBalance);
   }
 
-  if (chain.id !== arcTestnet.id && nativeResult.status === "fulfilled") {
+  if (!isArcChain(chain.id) && nativeResult.status === "fulfilled") {
     const referencePriceUsd =
       !chain.testnet && chain.nativeCurrency.symbol === "ETH" ? prices.ethUsd || null : null;
     const referenceValueUsd = referencePriceUsd ? nativeBalance * referencePriceUsd : null;
@@ -270,37 +274,25 @@ export default async function handler(req, res) {
   const address = getAddress(rawAddress);
   const prices = await readMarketPrices();
   const settled = await Promise.allSettled(
-    MULTICHAIN_WALLET_CHAINS.map((chain) => readNetworkBalance(chain, address, prices))
+    WALLET_CONNECTION_CHAINS.map((chain) => readNetworkBalance(chain, address, prices))
   );
   const networks = settled.map((result, index) =>
     result.status === "fulfilled"
       ? result.value
-      : unavailableNetwork(MULTICHAIN_WALLET_CHAINS[index])
+      : unavailableNetwork(WALLET_CONNECTION_CHAINS[index])
   );
-  const readyNetworks = networks.filter((network) => network.status === "ready");
-  const totalUsdc = readyNetworks.reduce(
-    (sum, network) => sum + safeNumber(network.usdcBalance),
-    0
+  const allTestnet = ARC_NETWORK_MODE === "testnet";
+  const { totalUsdc, totalAssetCount, totalReferenceUsd, partial } = summarizeNetworkBalances(
+    networks,
+    ARC_NETWORK_MODE
   );
-  const totalAssetCount = readyNetworks.reduce(
-    (sum, network) => sum + safeNumber(network.assetCount),
-    0
-  );
-  const allTestnet = networks.every((network) => network.testnet);
-  const referenceValues = readyNetworks
-    .map((network) => network.totalReferenceUsd)
-    .filter((value) => typeof value === "number");
-  const totalReferenceUsd =
-    allTestnet || !referenceValues.length
-      ? null
-      : referenceValues.reduce((sum, value) => sum + value, 0);
 
   res.setHeader("Cache-Control", "public, s-maxage=30, stale-while-revalidate=120");
   return res.status(200).json({
     ok: true,
     address,
     environment: allTestnet ? "testnet" : "mainnet",
-    testnetAssetsHaveNoMonetaryValue: allTestnet,
+    testnetAssetsHaveNoMonetaryValue: networks.some((network) => network.testnet),
     totalUsdc,
     totalUsdcDisplay: `${formatAmount(totalUsdc, 4)} USDC`,
     totalReferenceUsd,
@@ -313,7 +305,7 @@ export default async function handler(req, res) {
     networks,
     priceSource: prices.source,
     priceCheckedAt: prices.checkedAt || null,
-    partial: readyNetworks.length !== networks.length,
+    partial,
     checkedAt: new Date().toISOString()
   });
 }

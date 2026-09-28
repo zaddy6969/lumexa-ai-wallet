@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { memo, useCallback, useState } from "react";
-import { MULTICHAIN_WALLET_CHAINS, arcActiveChain } from "../lib/arc-chain";
+import { WALLET_CONNECTION_CHAINS, arcActiveChain } from "../lib/arc-chain";
 import { FeatureIcon } from "./wallet-sidebar";
 
 function shortAddress(value) {
@@ -72,7 +72,7 @@ const WalletDashboard = memo(function WalletDashboard({
   const fundedAssets = assets.filter((asset) => Number(asset?.balanceValue || 0) > 0);
   const activeChain = walletSnapshot?.activeChain || arcActiveChain;
   const isTestnet = Boolean(activeChain.testnet);
-  const supportedNetworkNames = MULTICHAIN_WALLET_CHAINS.map((chain) => chain.name).join(", ");
+  const supportedNetworkNames = WALLET_CONNECTION_CHAINS.map((chain) => chain.name).join(", ");
   const activeBalance =
     walletSnapshot?.usdcBalance ||
     (walletSnapshot?.balanceStatus === "loading" ? "Syncing…" : "Balance unavailable");
@@ -210,13 +210,15 @@ const WalletDashboard = memo(function WalletDashboard({
                   </div>
                   <p>{network.status === "ready" ? network.assetSummary : "Balance unavailable"}</p>
                   <small>
-                    {Number(network.chainId) === Number(walletSnapshot?.chainId)
-                      ? "Active network"
-                      : "Public balance"}
+                    {network.testnet
+                      ? "Testnet · No real-world value"
+                      : Number(network.chainId) === Number(walletSnapshot?.chainId)
+                        ? "Active network"
+                        : "Public balance"}
                   </small>
                 </article>
               ))
-            : MULTICHAIN_WALLET_CHAINS.map((chain) => (
+            : WALLET_CONNECTION_CHAINS.map((chain) => (
                 <article key={chain.id}>
                   <div>
                     <span className="network-dot" />
