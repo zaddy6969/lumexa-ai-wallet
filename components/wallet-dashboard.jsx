@@ -76,6 +76,30 @@ const WalletDashboard = memo(function WalletDashboard({
   const activeBalance =
     walletSnapshot?.usdcBalance ||
     (walletSnapshot?.balanceStatus === "loading" ? "Syncing…" : "Balance unavailable");
+  const activeNetworkBalance = networkBalances.find(
+    (network) => Number(network.chainId) === Number(walletSnapshot?.chainId)
+  );
+  const fundedAssetsWithoutPrices = Array.isArray(activeNetworkBalance?.assets)
+    ? activeNetworkBalance.assets.some(
+        (asset) =>
+          asset?.status === "ready" &&
+          Number(asset.balanceValue) > 0 &&
+          (typeof asset.referenceValueUsd !== "number" ||
+            !Number.isFinite(asset.referenceValueUsd))
+      )
+    : false;
+  const portfolioBalance = isTestnet
+    ? activeBalance
+    : balancesQuery.isPending
+      ? "Syncing…"
+      : activeNetworkBalance?.status !== "ready"
+        ? "Balance unavailable"
+        : typeof activeNetworkBalance.totalReferenceUsd !== "number" ||
+            !Number.isFinite(activeNetworkBalance.totalReferenceUsd)
+          ? "Price unavailable"
+          : activeNetworkBalance.totalReferenceUsdDisplay;
+  const activeUsdcBalance = activeNetworkBalance?.usdcDisplay || activeBalance;
+  const nativeSymbol = activeChain.nativeCurrency?.symbol || "";
   const copyAddress = useCallback(async () => {
     if (!address || !navigator?.clipboard) return;
     try {
@@ -147,8 +171,8 @@ const WalletDashboard = memo(function WalletDashboard({
 
       <section className="balance-hero">
         <div className="balance-copy">
-          <span>USDC balance</span>
-          <strong>{activeBalance}</strong>
+          <span>{isTestnet ? "USDC balance" : "Estimated portfolio value"}</span>
+          <strong>{portfolioBalance}</strong>
           <div className="balance-meta" role="note">
             <span className="environment-status">
               <i aria-hidden="true" />
@@ -157,8 +181,15 @@ const WalletDashboard = memo(function WalletDashboard({
             <span>
               {isTestnet
                 ? "No real-world value"
-                : "Assets may have real-world value — verify before signing"}
+                : "Reference USD value · assets may have real-world value"}
             </span>
+            {!isTestnet ? <span>USDC: {activeUsdcBalance}</span> : null}
+            {!isTestnet && nativeSymbol && nativeSymbol !== "USDC" ? (
+              <span>{activeNetworkBalance?.nativeDisplay || walletSnapshot?.nativeBalance || `— ${nativeSymbol}`}</span>
+            ) : null}
+            {!isTestnet && fundedAssetsWithoutPrices ? (
+              <span>Partial estimate · some asset prices unavailable</span>
+            ) : null}
           </div>
         </div>
         <div className="balance-aside" aria-label="Wallet status">
