@@ -185,7 +185,11 @@ const WalletDashboard = memo(function WalletDashboard({
             </span>
             {!isTestnet ? <span>USDC: {activeUsdcBalance}</span> : null}
             {!isTestnet && nativeSymbol && nativeSymbol !== "USDC" ? (
-              <span>{activeNetworkBalance?.nativeDisplay || walletSnapshot?.nativeBalance || `— ${nativeSymbol}`}</span>
+              <span>
+                {activeNetworkBalance?.nativeDisplay ||
+                  walletSnapshot?.nativeBalance ||
+                  `— ${nativeSymbol}`}
+              </span>
             ) : null}
             {!isTestnet && fundedAssetsWithoutPrices ? (
               <span>Partial estimate · some asset prices unavailable</span>
